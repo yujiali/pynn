@@ -84,7 +84,7 @@ class NeuralNet(BaseNeuralNet):
         self.output_layer_added = False
 
     def add_layer(self, out_dim=0, nonlin_type=None, dropout=0, init_scale=1e-1,
-            params=None, loss=None):
+            params=None, loss_type=None):
         if self.output_layer_added:
             raise NetworkConstructionError(
                     'Trying to add more layers beyond output layer.')
@@ -106,6 +106,4 @@ class NeuralNet(BaseNeuralNet):
 
     def forward_prop(self, X, add_noise=False):
         pass
-        
-        
 

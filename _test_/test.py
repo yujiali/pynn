@@ -137,8 +137,9 @@ def test_all_loss():
 
     return n_success, n_tests
 
-def test_layer(add_noise=False):
-    print 'Testing layer ' + ('with noise' if add_noise else 'without noise')
+def test_layer(add_noise=False, no_loss=False):
+    print 'Testing layer ' + ('with noise' if add_noise else 'without noise') \
+            + ', ' + ('without loss' if no_loss else 'with loss')
     in_dim = 4
     out_dim = 3
     n_cases = 3
@@ -146,8 +147,11 @@ def test_layer(add_noise=False):
     x = gnp.randn(n_cases, in_dim)
     t = gnp.randn(n_cases, out_dim)
 
-    loss = ls.get_loss_from_type_name(ls.LOSS_NAME_SQUARED)
-    loss.load_target(t)
+    if no_loss:
+        loss = None
+    else:
+        loss = ls.get_loss_from_type_name(ls.LOSS_NAME_SQUARED)
+        loss.load_target(t)
 
     seed = 8
     if add_noise:
@@ -193,8 +197,10 @@ def test_all_layer():
         n_success += 1
     if test_layer(add_noise=True):
         n_success += 1
+    if test_layer(add_noise=False, no_loss=True):
+        n_success += 1
 
-    n_tests = 2
+    n_tests = 3
 
     print '=============='
     print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)

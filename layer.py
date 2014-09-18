@@ -70,6 +70,7 @@ class Layer(object):
             self.params = LayerParams(in_dim, out_dim, init_scale, dropout)
 
         self.loss = loss
+        self.loss_value = 0
 
         self.noise_added = False
         self.loss_computed = False
@@ -89,7 +90,7 @@ class Layer(object):
         self.activation = self.inputs.dot(self.params.W) + self.params.b
         self.output = self.nonlin.forward_prop(self.activation)
 
-        if compute_loss:
+        if compute_loss and self.loss is not None:
             self.loss_value, self.loss_grad = self.loss.compute_loss_and_grad(
                     self.output, compute_grad=True)
             self.loss_computed = True
