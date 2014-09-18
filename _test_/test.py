@@ -104,8 +104,6 @@ def test_loss(loss):
         t = t - t.min(axis=1)[:,gnp.newaxis] + 1
         t /= t.sum(axis=1)[:,gnp.newaxis]
 
-    print t
-        
     loss.load_target(t)
 
     def f(w):
@@ -139,13 +137,78 @@ def test_all_loss():
 
     return n_success, n_tests
 
+def test_layer(add_noise=False):
+    print 'Testing layer ' + ('with noise' if add_noise else 'without noise')
+    in_dim = 4
+    out_dim = 3
+    n_cases = 3
+
+    x = gnp.randn(n_cases, in_dim)
+    t = gnp.randn(n_cases, out_dim)
+
+    loss = ls.get_loss_from_type_name(ls.LOSS_NAME_SQUARED)
+    loss.load_target(t)
+
+    seed = 8
+    if add_noise:
+        gnp.seed_rand(seed)
+        dropout_rate = 0.5
+    else:
+        dropout_rate = 0
+
+    layer = ly.Layer(in_dim, out_dim, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=dropout_rate, loss=loss)
+
+    w_0 = layer.params.get_param_vec()
+
+    layer.params.clear_gradient()
+    layer.forward_prop(x, compute_loss=True)
+    layer.backward_prop()
+    backprop_grad = layer.params.get_grad_vec()
+
+    def f(w):
+        if add_noise:
+            # this makes sure the same units are dropped out every time this
+            # function is called
+            gnp.seed_rand(seed)
+        layer.params.set_param_from_vec(w)
+        layer.forward_prop(x, compute_loss=True)
+        return layer.loss_value
+
+    fdiff_grad = finite_difference_gradient(f, w_0)
+
+    test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
+            backprop_grad, '  Backpropagation Gradient')
+    print ''
+    return test_passed
+
+def test_all_layer():
+    print ''
+    print '==============='
+    print 'Testing a layer'
+    print '==============='
+    print ''
+
+    n_success = 0
+    if test_layer(add_noise=False):
+        n_success += 1
+    if test_layer(add_noise=True):
+        n_success += 1
+
+    n_tests = 2
+
+    print '=============='
+    print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)
+    print ''
+
+    return n_success, n_tests
+
 def run_all_tests():
     gnp.seed_rand(int(time.time()))
 
     n_success = 0
     n_tests = 0
 
-    test_list = [test_all_nonlin, test_all_loss]
+    test_list = [test_all_nonlin, test_all_loss, test_all_layer]
     for batch_test in test_list:
         success_in_batch, tests_in_batch = batch_test()
         n_success += success_in_batch
@@ -155,7 +218,6 @@ def run_all_tests():
     print '==================='
     print 'All tests finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)
     print ''
-
 
 if __name__ == '__main__':
     run_all_tests()

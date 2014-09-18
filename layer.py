@@ -96,13 +96,17 @@ class Layer(object):
         
         return self.output
 
-    def backward_prop(self, grad):
+    def backward_prop(self, grad=None):
         """
         Compute the backward propagation step, with output gradient as input.
 
         Compute gradients for the input and update the gradient for the weights.
         """
-        d_output = grad
+        if grad is None:
+            d_output = gnp.zeros(self.output.shape)
+        else:
+            d_output = grad
+
         if self.loss_computed:
             d_output += self.loss_grad
         d_act = self.nonlin.backward_prop(self.activation, self.output) * d_output
