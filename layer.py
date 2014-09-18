@@ -142,7 +142,31 @@ class Nonlinearity(object):
     def get_name(self):
         raise NotImplementedError()
 
-_nonlin_dict = {}
+class NonlinManager(object):
+    """
+    Maintains a set of nonlinearities.
+    """
+    def __init__(self):
+        self.nonlin_dict = {}
+
+    def register_nonlin(self, nonlin):
+        nonlin_name = nonlin.get_name()
+        self.nonlin_dict[nonlin_name] = nonlin
+        globals()['NONLIN_NAME_' + nonlin_name.upper()] = nonlin_name
+
+    def get_nonlin_list(self):
+        return self.nonlin_dict.values()
+
+    def get_nonlin_instance(self, nonlin_type):
+        return self.nonlin_dict[nonlin_type]
+
+_nonlin_manager = NonlinManager()
+
+def register_nonlin(nonlin):
+    _nonlin_manager.register_nonlin(nonlin)
+
+def get_nonlin_from_type_name(nonlin_type):
+    return _nonlin_manager.get_nonlin_instance(nonlin_type)
 
 # Definitions for all nonlinearities start here.
 
@@ -152,14 +176,12 @@ class LinearNonlin(Nonlinearity):
 
     def backward_prop(self, x, z):
         return gnp.ones(x.shape)
-        # return 1
+        # return gnp.garray(1)
 
     def get_name(self):
         return 'linear'
 
-_linear_nonlin = LinearNonlin()
-NONLIN_NAME_LINEAR = _linear_nonlin.get_name()
-_nonlin_dict[NONLIN_NAME_LINEAR] = _linear_nonlin
+register_nonlin(LinearNonlin())
 
 class SigmoidNonlin(Nonlinearity):
     def forward_prop(self, x):
@@ -171,9 +193,7 @@ class SigmoidNonlin(Nonlinearity):
     def get_name(self):
         return 'sigmoid'
 
-_sigmoid_nonlin = SigmoidNonlin()
-NONLIN_NAME_SIGMOID = _sigmoid_nonlin.get_name()
-_nonlin_dict[NONLIN_NAME_SIGMOID] = _sigmoid_nonlin
+register_nonlin(SigmoidNonlin())
 
 class TanhNonlin(Nonlinearity):
     def forward_prop(self, x):
@@ -185,9 +205,7 @@ class TanhNonlin(Nonlinearity):
     def get_name(self):
         return 'tanh'
 
-_tanh_nonlin = TanhNonlin()
-NONLIN_NAME_TANH = _tanh_nonlin.get_name()
-_nonlin_dict[NONLIN_NAME_TANH] = _tanh_nonlin
+register_nonlin(TanhNonlin())
 
 class ReluNonlin(Nonlinearity):
     def forward_prop(self, x):
@@ -199,12 +217,7 @@ class ReluNonlin(Nonlinearity):
     def get_name(self):
         return 'relu'
 
-_relu_nonlin = ReluNonlin()
-NONLIN_NAME_RELU = _relu_nonlin.get_name()
-_nonlin_dict[NONLIN_NAME_RELU] = _relu_nonlin
+register_nonlin(ReluNonlin())
 
-def get_nonlin_from_type_name(nonlin_type):
-    return _nonlin_dict[nonlin_type]
-
-NONLIN_LIST = _nonlin_dict.values()
+NONLIN_LIST = _nonlin_manager.get_nonlin_list()
 
