@@ -53,7 +53,7 @@ class Layer(object):
     One layer in a neural network.
     """
     def __init__(self, in_dim, out_dim, nonlin_type=None, dropout=0,
-            init_scale=1e-1, params=None):
+            init_scale=1e-1, params=None, loss=None):
         self.in_dim = in_dim
         self.out_dim = out_dim
 
@@ -69,7 +69,12 @@ class Layer(object):
         else:
             self.params = LayerParams(in_dim, out_dim, init_scale, dropout)
 
-    def forward_prop(self, X, add_noise=False):
+        self.loss = loss
+
+        self.noise_added = False
+        self.loss_computed = False
+
+    def forward_prop(self, X, add_noise=False, compute_loss=False):
         """
         Compute the forward propagation step that maps the input data matrix X
         into the output.
@@ -83,6 +88,12 @@ class Layer(object):
 
         self.activation = self.inputs.dot(self.params.W) + self.params.b
         self.output = self.nonlin.forward_prop(self.activation)
+
+        if compute_loss:
+            self.loss_value, self.loss_grad = self.loss.compute_loss_and_grad(
+                    self.output, compute_grad=True)
+            self.loss_computed = True
+        
         return self.output
 
     def backward_prop(self, grad):
@@ -91,7 +102,10 @@ class Layer(object):
 
         Compute gradients for the input and update the gradient for the weights.
         """
-        d_act = self.nonlin.backward_prop(self.activation, self.output) * grad
+        d_output = grad
+        if self.loss_computed:
+            d_output += self.loss_grad
+        d_act = self.nonlin.backward_prop(self.activation, self.output) * d_output
         d_input = d_act.dot(self.params.W.T)
         if self.dropout > 0 and self.noise_added:
             d_input *= self.dropout_mask
@@ -112,12 +126,16 @@ class Nonlinearity(object):
     def forward_prop(self, x):
         """
         x: input
+
+        Return a matrix same size as x.
         """
         raise NotImplementedError()
 
     def backward_prop(self, x, z):
         """
         z: computed output from forward_prop
+
+        Return a matrix same size as x and z
         """
         raise NotImplementedError()
 
@@ -130,10 +148,11 @@ _nonlin_dict = {}
 
 class LinearNonlin(Nonlinearity):
     def forward_prop(self, x):
-        return X
+        return x
 
     def backward_prop(self, x, z):
-        return gnp.ones(x.shape, dtype=x.dtype)
+        return gnp.ones(x.shape)
+        # return 1
 
     def get_name(self):
         return 'linear'
@@ -186,4 +205,6 @@ _nonlin_dict[NONLIN_NAME_RELU] = _relu_nonlin
 
 def get_nonlin_from_type_name(nonlin_type):
     return _nonlin_dict[nonlin_type]
+
+NONLIN_LIST = _nonlin_dict.values()
 
