@@ -44,6 +44,12 @@ class Loss(object):
     def get_name(self):
         raise NotImplementedError()
 
+    def get_id(self):
+        """
+        Loss type ID, 0 reserved for no loss.
+        """
+        raise NotImplementedError()
+
     def target_should_be_normalized(self):
         """
         Mainly for testing.
@@ -62,24 +68,35 @@ class Loss(object):
         """
         return False
 
+_LOSS_ID_NONE = 0
+
 class LossManager(object):
     """
     This maintains a set of different losses.
     """
     def __init__(self):
-        self.loss_dict = {}
+        self.name_to_loss = {}
+        self.id_to_loss = {}
 
     def register_loss(self, loss):
         loss_name = loss.get_name()
-        self.loss_dict[loss_name] = loss.__class__
+        loss_id = loss.get_id()
+        self.name_to_loss[loss_name] = loss.__class__
+        self.id_to_loss[loss_id] = loss.__class__
         globals()['LOSS_NAME_' + loss_name.upper()] = loss_name
+        globals()['_LOSS_ID_' + loss_name.upper()] = loss_id
 
     def get_loss_list(self):
         return [self.get_loss_instance(loss_type) \
-                for loss_type in self.loss_dict.keys()]
+                for loss_type in self.name_to_loss.keys()]
 
     def get_loss_instance(self, loss_type):
-        return self.loss_dict[loss_type]()
+        return self.name_to_loss[loss_type]()
+
+    def get_loss_instance_from_id(self, loss_id):
+        if loss_id == _LOSS_ID_NONE:
+            return None
+        return self.id_to_loss[loss_id]()
 
 _loss_manager = LossManager()
 
@@ -88,6 +105,9 @@ def register_loss(loss):
 
 def get_loss_from_type_name(loss_type):
     return _loss_manager.get_loss_instance(loss_type)
+
+def get_loss_from_type_id(loss_id):
+    return _loss_manager.get_loss_instance_from_id(loss_id)
 
 class DebugLoss(Loss):
     """
@@ -99,6 +119,9 @@ class DebugLoss(Loss):
 
     def get_name(self):
         return 'debug'
+
+    def get_id(self):
+        return 1
 
 register_loss(DebugLoss())
 
@@ -112,6 +135,9 @@ class ZeroLoss(Loss):
 
     def get_name(self):
         return 'zero'
+
+    def get_id(self):
+        return 2
 
 register_loss(ZeroLoss())
 
@@ -129,6 +155,9 @@ class SquaredLoss(Loss):
 
     def get_name(self):
         return 'squared'
+
+    def get_id(self):
+        return 3
 
 register_loss(SquaredLoss())
 
@@ -154,6 +183,9 @@ class CrossEntropy(Loss):
 
     def target_should_be_one_hot(self):
         return True
+
+    def get_id(self):
+        return 4
 
 register_loss(CrossEntropy())
 

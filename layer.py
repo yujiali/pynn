@@ -7,12 +7,21 @@ Yujia Li, 09/2014
 import gnumpy as gnp
 import numpy as np
 import const
+import struct
+import loss as ls
 
 class LayerParams(object):
     """
     Parameters of a layer. Weight matrix shape is in_dim * out_dim.
     """
-    def __init__(self, in_dim, out_dim, init_scale=1e-1, dropout=0):
+    _param_count = 0
+
+    def __init__(self, in_dim=1, out_dim=1, init_scale=1e-1, dropout=0,
+            in_stream=None):
+        if in_stream is not None:
+            self.load_from_stream(in_stream)
+            return
+
         self.W = gnp.randn(in_dim, out_dim) * init_scale
         self.b = gnp.zeros(out_dim)
 
@@ -21,6 +30,10 @@ class LayerParams(object):
 
         self.param_size = self.W.size + self.b.size
         self.dropout = dropout
+
+        # get an ID for this param variable.
+        self._param_id = LayerParams._param_count
+        LayerParams._param_count += 1
 
     def clear_gradient(self):
         self.W_grad[:] = 0
@@ -48,32 +61,50 @@ class LayerParams(object):
         self.W[:] = v[:self.W.size].reshape(self.W.shape)
         self.b[:] = v[self.W.size:].reshape(self.b.shape)
 
+    def save_to_binary(self):
+        s = struct.pack('iiif', self._param_id, self.W.shape[0],
+                self.W.shape[1], self.dropout)
+        s += self.W.asarray().astype(np.float32).tostring()
+        s += self.b.asarray().astype(np.float32).tostring()
+        return s
+
+    def load_from_stream(self, f):
+        self._param_id, self.in_dim, self.out_dim, self.dropout = \
+                struct.unpack('iiif', f.read(4*4))
+        self.W = gnp.garray(np.fromstring(f.read(self.in_dim * self.out_dim * 4), 
+            dtype=np.float32).reshape(self.in_dim, self.out_dim))
+        self.b = gnp.garray(np.fromstring(f.read(self.out_dim * 4), dtype=np.float32))
+        
+        self.W_grad = self.W * 0
+        self.b_grad = self.b * 0
+
+        self.param_size = self.W.size + self.b.size
+
 class Layer(object):
     """
     One layer in a neural network.
     """
-    def __init__(self, in_dim, out_dim, nonlin_type=None, dropout=0,
+    def __init__(self, in_dim=1, out_dim=1, nonlin_type=None, dropout=0,
             init_scale=1e-1, params=None, loss=None):
-        self.in_dim = in_dim
-        self.out_dim = out_dim
-
         if nonlin_type is None:
             nonlin_type = NONLIN_NAME_LINEAR
-        self.nonlin = get_nonlin_from_type_name(nonlin_type)
+        nonlin = get_nonlin_from_type_name(nonlin_type)
+        self.build_layer(in_dim, out_dim, nonlin, dropout, init_scale, loss, params)
 
-        self.dropout = dropout
-
-        if params is not None:
-            self.params = params
-            self.dropout = params.dropout
-        else:
-            self.params = LayerParams(in_dim, out_dim, init_scale, dropout)
-
+    def build_layer(self, in_dim, out_dim, nonlin, dropout=0, 
+            init_scale=1e-1, loss=None, params=None):
+        self.nonlin = nonlin
+        self.set_params(params if params is not None else \
+                LayerParams(in_dim, out_dim, init_scale, dropout))
         self.loss = loss
         self.loss_value = 0
-
         self.noise_added = False
         self.loss_computed = False
+
+    def set_params(self, params):
+        self.params = params
+        self.in_dim, self.out_dim = params.W.shape
+        self._param_id = params._param_id
 
     def set_loss(self, loss):
         self.loss = loss
@@ -85,8 +116,8 @@ class Layer(object):
         compute_loss set to True. Note that the loss is applied on nonlinearity
         activation, rather than the final output.
         """
-        if self.dropout > 0 and add_noise:
-            self.dropout_mask = gnp.rand(X.shape[0], X.shape[1]) > self.dropout
+        if self.params.dropout > 0 and add_noise:
+            self.dropout_mask = gnp.rand(X.shape[0], X.shape[1]) > self.params.dropout
             self.inputs = X * self.dropout_mask
         else:
             self.inputs = X
@@ -118,13 +149,31 @@ class Layer(object):
             d_act += self.loss_grad
 
         d_input = d_act.dot(self.params.W.T)
-        if self.dropout > 0 and self.noise_added:
+        if self.params.dropout > 0 and self.noise_added:
             d_input *= self.dropout_mask
         self.params.add_gradient(self.inputs.T.dot(d_act), d_act.sum(axis=0))
         return d_input
 
+    def save_to_binary(self):
+        return struct.pack('ii', self.in_dim, self.out_dim) \
+                + struct.pack('i', self.params._param_id) \
+                + struct.pack('i', self.nonlin.get_id()) \
+                + struct.pack('i', self.loss.get_id() \
+                if self.loss is not None else ls._LOSS_ID_NONE)
+
+    def load_from_stream(self, f):
+        in_dim, out_dim, _param_id, nonlin_id, loss_id = \
+                struct.unpack('iiiii', f.read(5*4))
+        nonlin = get_nonlin_from_type_id(nonlin_id)
+        loss = ls.get_loss_from_type_id(loss_id)
+
+        self.build_layer(in_dim, out_dim, nonlin, 
+                init_scale=const.DEFAULT_PARAM_INIT_SCALE, loss=loss)
+        self._param_id = _param_id
+
     def __repr__(self):
-        return '%s %d x %d' % (self.nonlin.get_name(), self.in_dim, self.out_dim)
+        return '%s %d x %d, dropout %g' % (self.nonlin.get_name(), 
+                self.in_dim, self.out_dim, self.params.dropout)
 
 class Nonlinearity(object):
     """
@@ -153,23 +202,33 @@ class Nonlinearity(object):
     def get_name(self):
         raise NotImplementedError()
 
+    def get_id(self):
+        raise NotImplementedError()
+
 class NonlinManager(object):
     """
     Maintains a set of nonlinearities.
     """
     def __init__(self):
-        self.nonlin_dict = {}
+        self.name_to_nonlin = {}
+        self.id_to_nonlin = {}
 
     def register_nonlin(self, nonlin):
         nonlin_name = nonlin.get_name()
-        self.nonlin_dict[nonlin_name] = nonlin
+        nonlin_id = nonlin.get_id()
+        self.name_to_nonlin[nonlin_name] = nonlin
+        self.id_to_nonlin[nonlin_id] = nonlin
         globals()['NONLIN_NAME_' + nonlin_name.upper()] = nonlin_name
+        globals()['_NONLIN_ID_' + nonlin_name.upper()] = nonlin_id
 
     def get_nonlin_list(self):
-        return self.nonlin_dict.values()
+        return self.name_to_nonlin.values()
 
     def get_nonlin_instance(self, nonlin_type):
-        return self.nonlin_dict[nonlin_type]
+        return self.name_to_nonlin[nonlin_type]
+
+    def get_nonlin_instance_from_id(self, nonlin_id):
+        return self.id_to_nonlin[nonlin_id]
 
 _nonlin_manager = NonlinManager()
 
@@ -178,6 +237,9 @@ def register_nonlin(nonlin):
 
 def get_nonlin_from_type_name(nonlin_type):
     return _nonlin_manager.get_nonlin_instance(nonlin_type)
+
+def get_nonlin_from_type_id(nonlin_id):
+    return _nonlin_manager.get_nonlin_instance_from_id(nonlin_id)
 
 # Definitions for all nonlinearities start here.
 
@@ -192,6 +254,9 @@ class LinearNonlin(Nonlinearity):
     def get_name(self):
         return 'linear'
 
+    def get_id(self):
+        return 0
+
 register_nonlin(LinearNonlin())
 
 class SigmoidNonlin(Nonlinearity):
@@ -203,6 +268,9 @@ class SigmoidNonlin(Nonlinearity):
 
     def get_name(self):
         return 'sigmoid'
+
+    def get_id(self):
+        return 1
 
 register_nonlin(SigmoidNonlin())
 
@@ -216,6 +284,9 @@ class TanhNonlin(Nonlinearity):
     def get_name(self):
         return 'tanh'
 
+    def get_id(self):
+        return 2
+
 register_nonlin(TanhNonlin())
 
 class ReluNonlin(Nonlinearity):
@@ -227,6 +298,9 @@ class ReluNonlin(Nonlinearity):
 
     def get_name(self):
         return 'relu'
+
+    def get_id(self):
+        return 3
 
 register_nonlin(ReluNonlin())
 

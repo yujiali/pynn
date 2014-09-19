@@ -273,6 +273,32 @@ def test_neuralnet(add_noise=False):
     gnp.seed_rand(int(time.time()))
     return test_passed
 
+def test_neuralnet_io():
+    print 'Testing NeuralNet I/O'
+
+    _temp_file_name = '_temp_.pdata'
+
+    net = nn.NeuralNet(3,2)
+    net.add_layer(2, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
+    h = net.add_layer(2, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=0.5)
+    net.add_layer(nonlin_type=ly.NONLIN_NAME_RELU, dropout=0.5, params=h.params)
+    net.add_layer(nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=0.5, params=h.params)
+    net.add_layer(0)
+    net.save_model_to_file(_temp_file_name)
+
+    net2 = nn.NeuralNet(0,0)
+    net2.load_model_from_file(_temp_file_name)
+
+    os.remove(_temp_file_name)
+
+    print 'Net #1: ' + str(net)
+    print 'Net #2: ' + str(net2)
+    test_passed = (str(net) == str(net2))
+
+    test_passed = test_passed and test_vec_pair(net.get_param_vec(), 'Net #1',
+            net2.get_param_vec(), 'Net #2')
+    return test_passed
+
 def test_all_neuralnet():
     print ''
     print '================='
@@ -285,8 +311,10 @@ def test_all_neuralnet():
         n_success += 1
     if test_neuralnet(add_noise=True):
         n_success += 1
+    if test_neuralnet_io():
+        n_success += 1
 
-    n_tests = 2
+    n_tests = 3
 
     print '=============='
     print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)

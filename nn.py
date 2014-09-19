@@ -8,6 +8,7 @@ import gnumpy as gnp
 import numpy as np
 import layer as ly
 import loss as ls
+import struct
 
 class NetworkConstructionError(Exception):
     pass
@@ -40,6 +41,14 @@ class BaseNeuralNet(object):
         Get a vector representation of all parameters in the network.
         """
         raise NotImplementedError()
+
+    def get_noiseless_param_vec(self):
+        """
+        Get an approximate vector representation of all parameters in the
+        network, that corresponds to the noiseless case when using dropout in
+        training.
+        """
+        return self.get_param_vec()
 
     def set_param_from_vec(self, v):
         """
@@ -103,6 +112,13 @@ class NeuralNet(BaseNeuralNet):
         else:
             in_dim = self.layers[-1].out_dim
 
+        if params is not None:
+            if in_dim != params.W.shape[0]:
+                raise NetworkConstructionError(
+                        'Loading shared parameter failure: size mismatch.')
+            else:
+                out_dim = params.W.shape[1]
+
         if out_dim == 0:
             out_dim = self.out_dim
             self.output_layer_added = True
@@ -110,7 +126,7 @@ class NeuralNet(BaseNeuralNet):
         self.layers.append(ly.Layer(in_dim, out_dim, nonlin_type, dropout,
             init_scale, params))
 
-        if params == None:
+        if params is None:
             self.layer_params.append(self.layers[-1].params)
 
         return self.layers[-1]
@@ -165,6 +181,10 @@ class NeuralNet(BaseNeuralNet):
         return np.concatenate([self.layer_params[i].get_param_vec() \
                 for i in range(len(self.layer_params))])
 
+    def get_noiseless_param_vec(self):
+        return np.concatenate([self.layer_params[i].get_noiseless_param_vec() \
+                for i in range(len(self.layer_params))])
+
     def set_param_from_vec(self, v):
         i_start = 0
         for i in range(len(self.layer_params)):
@@ -176,8 +196,50 @@ class NeuralNet(BaseNeuralNet):
         return np.concatenate([self.layer_params[i].get_grad_vec() \
                 for i in range(len(self.layer_params))])
 
+    def noiseless_mode_setup(self):
+        self.set_param_from_vec(self.get_noiseless_param_vec())
+        for p in self.layer_params:
+            p.dropout = 0
+
     def __repr__(self):
         return ' | '.join([str(self.layers[i]) for i in range(len(self.layers))]) \
                 + ' | Loss <%s>' % (
                         self.loss.get_name() if self.loss is not None else 'none')
+
+    def save_model_to_binary(self):
+        # network structure first
+        s = struct.pack('i', len(self.layers))
+        s += ''.join([self.layers[i].save_to_binary() \
+                for i in range(len(self.layers))])
+
+        # network parameters
+        s += struct.pack('i', len(self.layer_params))
+        s += ''.join([self.layer_params[i].save_to_binary() \
+                for i in range(len(self.layer_params))])
+        return s
+
+    def load_model_from_stream(self, f):
+        self.layers = []
+        self.layer_params = []
+
+        n_layers = struct.unpack('i', f.read(4))[0]
+        for i in range(n_layers):
+            layer = ly.Layer()
+            layer.load_from_stream(f)
+            self.layers.append(layer)
+
+        n_params = struct.unpack('i', f.read(4))[0]
+        for i in range(n_params):
+            p = ly.LayerParams(in_stream=f)
+            self.layer_params.append(p)
+
+            for layer in self.layers:
+                if layer._param_id == p._param_id:
+                    layer.set_params(p)
+
+        self.in_dim = self.layers[0].in_dim
+        self.out_dim = self.layers[-1].out_dim
+        self.loss = self.layers[-1].loss
+        
+        self.output_layer_added = False
 
