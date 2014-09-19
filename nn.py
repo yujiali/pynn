@@ -13,6 +13,9 @@ import struct
 class NetworkConstructionError(Exception):
     pass
 
+class NetworkCompositionError(Exception):
+    pass
+
 class BaseNeuralNet(object):
     """
     Feed-forward neural network base class, each layer is fully connected.
@@ -20,16 +23,17 @@ class BaseNeuralNet(object):
     def __init__(self):
         pass
 
-    def forward_prop(self, X, compute_loss=False):
+    def forward_prop(self, X, add_noise=False, compute_loss=False):
         """
         Do a forward propagation, which maps input matrix X (n_cases, n_dims)
         to an output matrix Y (n_cases, n_out_dims).
 
+        add_noise - add noise if set.
         compute_loss - compute all the losses if set.
         """
         raise NotImplementedError()
 
-    def backward_prop(self, grad):
+    def backward_prop(self, grad=None):
         """
         Given the gradients for the output layer, back propagate through the
         network and compute all the gradients.
@@ -92,6 +96,7 @@ class NeuralNet(BaseNeuralNet):
         self.out_dim = out_dim
         self.layers = []
         self.layer_params = []
+        self.param_size = 0
         self.loss = None
 
         self.output_layer_added = False
@@ -129,7 +134,12 @@ class NeuralNet(BaseNeuralNet):
         if params is None:
             self.layer_params.append(self.layers[-1].params)
 
+        self._update_param_size()
+
         return self.layers[-1]
+
+    def _update_param_size(self):
+        self.param_size = sum([p.param_size for p in self.layer_params])
 
     def set_loss(self, loss_type):
         """
@@ -242,4 +252,74 @@ class NeuralNet(BaseNeuralNet):
         self.loss = self.layers[-1].loss
         
         self.output_layer_added = False
+        self._update_param_size()
+
+class StackedNeuralNet(BaseNeuralNet):
+    """
+    Create a new network by stacking a few smaller NeuralNets.
+    """
+    def __init__(self, *neural_nets):
+        self.neural_nets = neural_nets
+        if len(neural_nets) > 0:
+            self.in_dim = neural_nets[0].in_dim
+            self.out_dim = neural_nets[-1].out_dim
+
+    def load_target(self, *targets):
+        if len(targets) != len(self.neural_nets):
+            raise NetworkCompositionError('Number of loss targets should be the' \
+                    + ' same as number of stacked neural nets.')
+
+        for i in range(len(targets)):
+            self.neural_nets[i].load_target(targets[i])
+
+    def forward_prop(self, X, add_noise=False, compute_loss=False):
+        x_input = X
+        for i in range(len(self.neural_nets)):
+            x_input = self.neural_nets[i].forward_prop(x_input, 
+                    add_noise=add_noise, compute_loss=compute_loss)
+        return x_input
+
+    def backward_prop(self, grad=None):
+        for i in range(len(self.neural_nets))[::-1]:
+            grad = self.neural_nets[i].backward_prop(grad)
+        return grad
+
+    def get_param_vec(self):
+        return np.concatenate([self.neural_nets[i].get_param_vec() \
+                for i in range(len(self.neural_nets))])
+
+    def get_noiseless_param_vec(self):
+        return np.concatenate([self.neural_nets[i].get_noiseless_param_vec() \
+                for i in range(len(self.neural_nets))])
+
+    def set_param_from_vec(self, v):
+        i_start = 0
+        for i in range(len(self.neural_nets)):
+            net = self.neural_nets[i]
+            net.set_param_from_vec(v[i_start:i_start + net.param_size])
+            i_start += net.param_size
+
+    def get_grad_vec(self):
+        return np.concatenate([self.neural_nets[i].get_grad_vec() \
+                for i in range(len(self.neural_nets))])
+
+    def save_model_to_binary(self):
+        return struct.pack('i', len(self.neural_nets)) \
+                + ''.join([self.neural_nets[i].save_model_to_binary() \
+                for i in range(len(self.neural_nets))])
+
+    def load_model_from_stream(self, f):
+        n_nets = struct.unpack('i', f.read(4))[0]
+        self.neural_nets = []
+        for i in range(n_nets):
+            net = NeuralNet(0, 0)
+            net.load_model_from_stream(f)
+            self.neural_nets.append(net)
+
+        self.in_dim = self.neural_nets[0].in_dim
+        self.out_dim = self.neural_nets[-1].out_dim
+
+    def __repr__(self):
+        return '{ ' + ' }--{ '.join([str(self.neural_nets[i]) \
+                for i in range(len(self.neural_nets))]) + ' }'
 
