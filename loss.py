@@ -71,14 +71,15 @@ class LossManager(object):
 
     def register_loss(self, loss):
         loss_name = loss.get_name()
-        self.loss_dict[loss_name] = loss
+        self.loss_dict[loss_name] = loss.__class__
         globals()['LOSS_NAME_' + loss_name.upper()] = loss_name
 
     def get_loss_list(self):
-        return self.loss_dict.values()
+        return [self.get_loss_instance(loss_type) \
+                for loss_type in self.loss_dict.keys()]
 
     def get_loss_instance(self, loss_type):
-        return self.loss_dict[loss_type]
+        return self.loss_dict[loss_type]()
 
 _loss_manager = LossManager()
 

@@ -105,17 +105,18 @@ class Layer(object):
     def backward_prop(self, grad=None):
         """
         Compute the backward propagation step, with output gradient as input.
-
         Compute gradients for the input and update the gradient for the weights.
+        Note te loss gradients are added to the activation gradient, i.e. they 
+        won't pass through the nonlinearity.
         """
         if grad is None:
-            d_output = gnp.zeros(self.output.shape)
+            d_act = gnp.zeros(self.output.shape)
         else:
-            d_output = grad
+            d_act = self.nonlin.backward_prop(self.activation, self.output) * grad 
 
         if self.loss_computed:
-            d_output += self.loss_grad
-        d_act = self.nonlin.backward_prop(self.activation, self.output) * d_output
+            d_act += self.loss_grad
+
         d_input = d_act.dot(self.params.W.T)
         if self.dropout > 0 and self.noise_added:
             d_input *= self.dropout_mask
@@ -123,7 +124,7 @@ class Layer(object):
         return d_input
 
     def __repr__(self):
-        return '[ %s %d x %d ]' % (self.nonlin.get_name(), self.in_dim, self.out_dim)
+        return '%s %d x %d' % (self.nonlin.get_name(), self.in_dim, self.out_dim)
 
 class Nonlinearity(object):
     """

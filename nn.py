@@ -4,8 +4,10 @@ A python neural network package based on gnumpy.
 Yujia Li, 09/2014
 """
 
-import layer as ly
 import gnumpy as gnp
+import numpy as np
+import layer as ly
+import loss as ls
 
 class NetworkConstructionError(Exception):
     pass
@@ -113,9 +115,12 @@ class NeuralNet(BaseNeuralNet):
 
         return self.layers[-1]
 
-    def set_loss(self, loss):
-        self.loss = loss
-        self.layers[-1].set_loss(loss)
+    def set_loss(self, loss_type):
+        """
+        loss_type is the name of the loss.
+        """
+        self.loss = ls.get_loss_from_type_name(loss_type)
+        self.layers[-1].set_loss(self.loss)
 
     def load_target(self, target, *args, **kwargs):
         self.loss.load_target(target, *args, **kwargs)
@@ -140,4 +145,39 @@ class NeuralNet(BaseNeuralNet):
         Return the loss computed in a previous forward propagation.
         """
         return self.loss.get_most_recent_loss() if self.loss is not None else 0
+
+    def clear_gradient(self):
+        """
+        Reset all parameter gradients to zero.
+        """
+        for p in self.layer_params:
+            p.clear_gradient()
+
+    def backward_prop(self, grad=None):
+        """
+        Compute the backward prop, return the input gradient.
+        """
+        for i in range(len(self.layers))[::-1]:
+            grad = self.layers[i].backward_prop(grad)
+        return grad
+
+    def get_param_vec(self):
+        return np.concatenate([self.layer_params[i].get_param_vec() \
+                for i in range(len(self.layer_params))])
+
+    def set_param_from_vec(self, v):
+        i_start = 0
+        for i in range(len(self.layer_params)):
+            p = self.layer_params[i]
+            p.set_param_from_vec(v[i_start:i_start+p.param_size])
+            i_start += p.param_size
+
+    def get_grad_vec(self):
+        return np.concatenate([self.layer_params[i].get_grad_vec() \
+                for i in range(len(self.layer_params))])
+
+    def __repr__(self):
+        return ' | '.join([str(self.layers[i]) for i in range(len(self.layers))]) \
+                + ' | Loss <%s>' % (
+                        self.loss.get_name() if self.loss is not None else 'none')
 
