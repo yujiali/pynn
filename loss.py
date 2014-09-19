@@ -11,7 +11,7 @@ class Loss(object):
     Base class for losses.
     """
     def __init__(self):
-        pass
+        self.loss_value = 0
 
     def load_target(self, target, *args, **kwargs):
         """
@@ -34,6 +34,12 @@ class Loss(object):
                 False, this may not be computed to save time.
         """
         raise NotImplementedError()
+
+    def get_most_recent_loss(self):
+        """
+        Return the most recent loss computed in compute_loss_and_grad.
+        """
+        return self.loss_value
 
     def get_name(self):
         raise NotImplementedError()
@@ -87,7 +93,8 @@ class DebugLoss(Loss):
     Used for debugging only.
     """
     def compute_loss_and_grad(self, pred, compute_grad=False):
-        return pred.sum(), gnp.ones(pred.shape)
+        self.loss_value = pred.sum()
+        return self.loss_value, gnp.ones(pred.shape)
 
     def get_name(self):
         return 'debug'
@@ -99,7 +106,8 @@ class ZeroLoss(Loss):
     Simply no loss.
     """
     def compute_loss_and_grad(self, pred, compute_grad=False):
-        return 0, gnp.zeros(pred.shape)
+        self.loss_value = 0
+        return self.loss_value, gnp.zeros(pred.shape)
 
     def get_name(self):
         return 'zero'
@@ -115,8 +123,8 @@ class SquaredLoss(Loss):
 
     def compute_loss_and_grad(self, pred, compute_grad=False):
         diff = pred - self.target
-        loss = (diff**2).sum() / 2
-        return loss, diff
+        self.loss_value = (diff**2).sum() / 2
+        return self.loss_value, diff
 
     def get_name(self):
         return 'squared'
@@ -137,7 +145,8 @@ class CrossEntropy(Loss):
         y = gnp.exp(pred - pred.max(axis=1)[:,gnp.newaxis])
         y = y / y.sum(axis=1)[:,gnp.newaxis]
 
-        return -(self.target * gnp.log(y)).sum(), y - self.target 
+        self.loss_value = -(self.target * gnp.log(y)).sum()
+        return self.loss_value, y - self.target 
 
     def get_name(self):
         return 'crossentropy'

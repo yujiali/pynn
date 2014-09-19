@@ -5,6 +5,7 @@ Yujia Li, 09/2014
 """
 
 import layer as ly
+import gnumpy as gnp
 
 class NetworkConstructionError(Exception):
     pass
@@ -72,7 +73,8 @@ class BaseNeuralNet(object):
 
 class NeuralNet(BaseNeuralNet):
     """
-    A simple one input one output layer neural net.
+    A simple one input one output layer neural net, loss is only (possibly) 
+    added at the output layer.
     """
     def __init__(self, in_dim, out_dim):
         self.in_dim = in_dim
@@ -84,7 +86,12 @@ class NeuralNet(BaseNeuralNet):
         self.output_layer_added = False
 
     def add_layer(self, out_dim=0, nonlin_type=None, dropout=0, init_scale=1e-1,
-            params=None, loss_type=None):
+            params=None):
+        """
+        By default, nonlinearity is linear.
+
+        Return the newly added layer.
+        """
         if self.output_layer_added:
             raise NetworkConstructionError(
                     'Trying to add more layers beyond output layer.')
@@ -104,6 +111,33 @@ class NeuralNet(BaseNeuralNet):
         if params == None:
             self.layer_params.append(self.layers[-1].params)
 
-    def forward_prop(self, X, add_noise=False):
-        pass
+        return self.layers[-1]
+
+    def set_loss(self, loss):
+        self.loss = loss
+        self.layers[-1].set_loss(loss)
+
+    def load_target(self, target, *args, **kwargs):
+        self.loss.load_target(target, *args, **kwargs)
+
+    def forward_prop(self, X, add_noise=False, compute_loss=False):
+        """
+        Compute forward prop, return the output of the network.
+        """
+        if isinstance(X, gnp.garray):
+            x_input = X
+        else:
+            x_input = gnp.garray(X)
+
+        for i in range(len(self.layers)):
+            x_input = self.layers[i].forward_prop(x_input, 
+                    add_noise=add_noise, compute_loss=compute_loss)
+
+        return x_input
+
+    def get_loss(self):
+        """
+        Return the loss computed in a previous forward propagation.
+        """
+        return self.loss.get_most_recent_loss() if self.loss is not None else 0
 

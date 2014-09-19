@@ -75,10 +75,15 @@ class Layer(object):
         self.noise_added = False
         self.loss_computed = False
 
+    def set_loss(self, loss):
+        self.loss = loss
+
     def forward_prop(self, X, add_noise=False, compute_loss=False):
         """
         Compute the forward propagation step that maps the input data matrix X
-        into the output.
+        into the output. Loss and loss gradient will be computed when
+        compute_loss set to True. Note that the loss is applied on nonlinearity
+        activation, rather than the final output.
         """
         if self.dropout > 0 and add_noise:
             self.dropout_mask = gnp.rand(X.shape[0], X.shape[1]) > self.dropout
@@ -92,7 +97,7 @@ class Layer(object):
 
         if compute_loss and self.loss is not None:
             self.loss_value, self.loss_grad = self.loss.compute_loss_and_grad(
-                    self.output, compute_grad=True)
+                    self.activation, compute_grad=True)
             self.loss_computed = True
         
         return self.output
