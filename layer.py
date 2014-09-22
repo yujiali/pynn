@@ -151,6 +151,7 @@ class Layer(object):
         d_input = d_act.dot(self.params.W.T)
         if self.params.dropout > 0 and self.noise_added:
             d_input *= self.dropout_mask
+
         self.params.add_gradient(self.inputs.T.dot(d_act), d_act.sum(axis=0))
         return d_input
 

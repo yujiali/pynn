@@ -50,6 +50,22 @@ def finite_difference_gradient(f, x):
 
     return grad
 
+def fdiff_grad_generator(net, x, t, add_noise=False, seed=None):
+    net.load_target(t)
+
+    def f(w):
+        if add_noise and seed is not None:
+            gnp.seed_rand(seed)
+        w_0 = net.get_param_vec()
+        net.set_param_from_vec(w)
+        net.forward_prop(x, add_noise=add_noise, compute_loss=True)
+        loss = net.get_loss()
+        net.set_param_from_vec(w_0)
+
+        return loss
+
+    return f
+
 def test_nonlin(nonlin):
     print 'Testing nonlinearity <%s>' % nonlin.get_name()
 
@@ -216,6 +232,7 @@ def test_neuralnet(add_noise=False):
     out_dim = 2
     h1_dim = 2
     h2_dim = 2
+    h3_dim = 2
     n_cases = 5
 
     seed = 8
@@ -223,9 +240,12 @@ def test_neuralnet(add_noise=False):
     dropout_rate = 0.5 if add_noise else 0
 
     net = nn.NeuralNet(in_dim, out_dim)
-    net.add_layer(h1_dim, nonlin_type=ly.NONLIN_NAME_TANH, dropout=dropout_rate)
-    net.add_layer(h2_dim, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
-    net.add_layer(0, dropout=dropout_rate)
+    #net.add_layer(h1_dim, nonlin_type=ly.NONLIN_NAME_TANH, dropout=dropout_rate)
+    #net.add_layer(h2_dim, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
+    #net.add_layer(h3_dim, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
+    net.add_layer(3, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
+    net.add_layer(3, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
+    net.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=dropout_rate)
 
     net.set_loss(ls.LOSS_NAME_SQUARED)
     
@@ -322,13 +342,100 @@ def test_all_neuralnet():
 
     return n_success, n_tests
 
+def test_stacked_net_gradient(add_noise=False):
+    print 'Testing StackedNeuralNet'
+
+    in_dim = 3
+    out_dim = [2, 2, 2]
+    n_cases = 5
+    seed = 8
+
+    dropout_rate = 0.5 if add_noise else 0
+
+    net1 = nn.NeuralNet(3,out_dim[0])
+    net1.add_layer(2, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
+    net1.add_layer(0, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
+    net1.set_loss(ls.LOSS_NAME_SQUARED)
+
+    net2 = nn.NeuralNet(out_dim[0], out_dim[1])
+    net2.add_layer(3, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
+    net2.add_layer(0, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
+
+    net3 = nn.NeuralNet(out_dim[1], out_dim[2])
+    net3.add_layer(1, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
+    net3.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=0)
+    net3.set_loss(ls.LOSS_NAME_SQUARED)
+
+    stacked_net = nn.StackedNeuralNet(net1, net2, net3)
+
+    print stacked_net
+
+    x = gnp.randn(n_cases, in_dim)
+    t1 = gnp.randn(n_cases, out_dim[0])
+    t3 = gnp.randn(n_cases, out_dim[2])
+
+    stacked_net.load_target(t1, None, t3)
+
+    if add_noise:
+        gnp.seed_rand(seed)
+
+    stacked_net.clear_gradient()
+    stacked_net.forward_prop(x, add_noise=add_noise, compute_loss=True)
+    stacked_net.backward_prop()
+
+    backprop_grad = stacked_net.get_grad_vec()
+
+    def f(w):
+        w_0 = stacked_net.get_param_vec()
+        stacked_net.set_param_from_vec(w)
+
+        if add_noise:
+            gnp.seed_rand(seed)
+
+        stacked_net.forward_prop(x, add_noise=add_noise, compute_loss=True)
+        loss = stacked_net.get_loss()
+
+        stacked_net.set_param_from_vec(w_0)
+
+        return loss
+
+    fdiff_grad = finite_difference_gradient(f, stacked_net.get_param_vec())
+
+    test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
+            backprop_grad, '  Backpropagation Gradient')
+    print ''
+
+    gnp.seed_rand(int(time.time()))
+    return test_passed
+
+def test_all_stacked_net():
+    print ''
+    print '========================'
+    print 'Testing StackedNeuralNet'
+    print '========================'
+    print ''
+
+    n_success = 0
+    if test_stacked_net_gradient(add_noise=False):
+        n_success += 1
+    if test_stacked_net_gradient(add_noise=True):
+        n_success += 1
+
+    n_tests = 2
+
+    print '=============='
+    print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)
+    print ''
+
+    return n_success, n_tests
+
 def run_all_tests():
     gnp.seed_rand(int(time.time()))
 
     n_success = 0
     n_tests = 0
 
-    test_list = [test_all_nonlin, test_all_loss, test_all_layer, test_all_neuralnet]
+    test_list = [test_all_nonlin, test_all_loss, test_all_layer, test_all_neuralnet] #, test_all_stacked_net]
     for batch_test in test_list:
         success_in_batch, tests_in_batch = batch_test()
         n_success += success_in_batch

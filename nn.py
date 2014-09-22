@@ -33,10 +33,22 @@ class BaseNeuralNet(object):
         """
         raise NotImplementedError()
 
+    def get_loss(self):
+        """
+        Return the loss computed in a previous forward propagation.
+        """
+        raise NotImplementedError()
+
     def backward_prop(self, grad=None):
         """
         Given the gradients for the output layer, back propagate through the
         network and compute all the gradients.
+        """
+        raise NotImplementedError()
+
+    def clear_gradient(self):
+        """
+        Reset all parameter gradients to 0.
         """
         raise NotImplementedError()
 
@@ -149,7 +161,8 @@ class NeuralNet(BaseNeuralNet):
         self.layers[-1].set_loss(self.loss)
 
     def load_target(self, target, *args, **kwargs):
-        self.loss.load_target(target, *args, **kwargs)
+        if self.loss is not None and target is not None:
+            self.loss.load_target(target, *args, **kwargs)
 
     def forward_prop(self, X, add_noise=False, compute_loss=False):
         """
@@ -279,10 +292,17 @@ class StackedNeuralNet(BaseNeuralNet):
                     add_noise=add_noise, compute_loss=compute_loss)
         return x_input
 
+    def get_loss(self):
+        return sum([net.get_loss() for net in self.neural_nets])
+
     def backward_prop(self, grad=None):
         for i in range(len(self.neural_nets))[::-1]:
             grad = self.neural_nets[i].backward_prop(grad)
         return grad
+
+    def clear_gradient(self):
+        for net in self.neural_nets:
+            net.clear_gradient()
 
     def get_param_vec(self):
         return np.concatenate([self.neural_nets[i].get_param_vec() \
