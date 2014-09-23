@@ -17,6 +17,8 @@ import time
 _GRAD_CHECK_EPS = 1e-6
 _FDIFF_EPS = 1e-8
 
+_TEMP_FILE_NAME = '_temp_.pdata'
+
 def vec_str(v):
     s = '[ '
     for i in range(len(v)):
@@ -297,20 +299,18 @@ def test_neuralnet(add_noise=False):
 def test_neuralnet_io():
     print 'Testing NeuralNet I/O'
 
-    _temp_file_name = '_temp_.pdata'
-
     net = nn.NeuralNet(3,2)
     net.add_layer(2, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
     h = net.add_layer(2, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=0.5)
     net.add_layer(nonlin_type=ly.NONLIN_NAME_RELU, dropout=0.5, params=h.params)
     net.add_layer(nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=0.5, params=h.params)
     net.add_layer(0)
-    net.save_model_to_file(_temp_file_name)
+    net.save_model_to_file(_TEMP_FILE_NAME)
 
     net2 = nn.NeuralNet(0,0)
-    net2.load_model_from_file(_temp_file_name)
+    net2.load_model_from_file(_TEMP_FILE_NAME)
 
-    os.remove(_temp_file_name)
+    os.remove(_TEMP_FILE_NAME)
 
     print 'Net #1: ' + str(net)
     print 'Net #2: ' + str(net2)
@@ -409,6 +409,47 @@ def test_stacked_net_gradient(add_noise=False):
     gnp.seed_rand(int(time.time()))
     return test_passed
 
+def test_stacked_net_io():
+    print 'Testing StackedNeuralNet I/O'
+
+    in_dim = 3
+    out_dim = [5, 2, 2]
+    n_cases = 5
+    seed = 8
+
+    dropout_rate = 0.5
+
+    net1 = nn.NeuralNet(3, out_dim[0])
+    net1.add_layer(2, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
+    net1.add_layer(0, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
+    net1.set_loss(ls.LOSS_NAME_SQUARED)
+
+    net2 = nn.NeuralNet(out_dim[0], out_dim[1])
+    net2.add_layer(3, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
+    net2.add_layer(0, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
+
+    net3 = nn.NeuralNet(out_dim[1], out_dim[2])
+    net3.add_layer(1, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
+    net3.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=0)
+    net3.set_loss(ls.LOSS_NAME_SQUARED)
+
+    stacked_net = nn.StackedNeuralNet(net1, net2, net3)
+
+    stacked_net.save_model_to_file(_TEMP_FILE_NAME)
+
+    stacked_net2 = nn.StackedNeuralNet()
+    stacked_net2.load_model_from_file(_TEMP_FILE_NAME)
+
+    os.remove(_TEMP_FILE_NAME)
+
+    print 'Net #1: ' + str(stacked_net)
+    print 'Net #2: ' + str(stacked_net2)
+    test_passed = (str(stacked_net) == str(stacked_net2))
+
+    test_passed = test_passed and test_vec_pair(stacked_net.get_param_vec(), 'Net #1',
+            stacked_net2.get_param_vec(), 'Net #2')
+    return test_passed
+
 def test_all_stacked_net():
     print ''
     print '========================'
@@ -421,8 +462,10 @@ def test_all_stacked_net():
         n_success += 1
     if test_stacked_net_gradient(add_noise=True):
         n_success += 1
+    if test_stacked_net_io():
+        n_success += 1
 
-    n_tests = 2
+    n_tests = 3
 
     print '=============='
     print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)
