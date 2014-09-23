@@ -236,15 +236,16 @@ def test_neuralnet(add_noise=False):
     n_cases = 5
 
     seed = 8
+    # gnp.seed_rand(seed)
 
     dropout_rate = 0.5 if add_noise else 0
 
     net = nn.NeuralNet(in_dim, out_dim)
-    #net.add_layer(h1_dim, nonlin_type=ly.NONLIN_NAME_TANH, dropout=dropout_rate)
-    #net.add_layer(h2_dim, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
+    net.add_layer(h1_dim, nonlin_type=ly.NONLIN_NAME_TANH, dropout=dropout_rate)
+    net.add_layer(h2_dim, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
     #net.add_layer(h3_dim, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
-    net.add_layer(3, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
-    net.add_layer(3, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
+    #net.add_layer(10, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
+    #net.add_layer(10, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
     net.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=dropout_rate)
 
     net.set_loss(ls.LOSS_NAME_SQUARED)
@@ -346,7 +347,7 @@ def test_stacked_net_gradient(add_noise=False):
     print 'Testing StackedNeuralNet'
 
     in_dim = 3
-    out_dim = [2, 2, 2]
+    out_dim = [5, 2, 2]
     n_cases = 5
     seed = 8
 
@@ -435,7 +436,7 @@ def run_all_tests():
     n_success = 0
     n_tests = 0
 
-    test_list = [test_all_nonlin, test_all_loss, test_all_layer, test_all_neuralnet] #, test_all_stacked_net]
+    test_list = [test_all_nonlin, test_all_loss, test_all_layer, test_all_neuralnet, test_all_stacked_net]
     for batch_test in test_list:
         success_in_batch, tests_in_batch = batch_test()
         n_success += success_in_batch
