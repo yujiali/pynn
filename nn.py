@@ -2,6 +2,12 @@
 A python neural network package based on gnumpy.
 
 Yujia Li, 09/2014
+
+TODO:
+- right now YNeuralNet I/O only supports NeuralNet as the type for component
+  nets (network construction and forward/backward prop works for other types
+  of component nets just fine). Ideally this should be extended to 
+  StackedNeuralNet and other types as well.
 """
 
 import gnumpy as gnp
@@ -97,6 +103,13 @@ class BaseNeuralNet(object):
     def load_model_from_file(self, file_name):
         with open(file_name, 'rb') as f:
             self.load_model_from_stream(f)
+
+    def _update_param_size(self):
+        """
+        Update parameter size. After a call to this function the param_size
+        attribute will be set properly.
+        """
+        raise NotImplementedError()
 
 class NeuralNet(BaseNeuralNet):
     """
@@ -267,38 +280,20 @@ class NeuralNet(BaseNeuralNet):
         self.output_layer_added = False
         self._update_param_size()
 
-class StackedNeuralNet(BaseNeuralNet):
+class CompositionalNeuralNet(BaseNeuralNet):
     """
-    Create a new network by stacking a few smaller NeuralNets.
+    A base class for all meta neural nets that are formed by combining multiple
+    different nets.
     """
     def __init__(self, *neural_nets):
         self.neural_nets = neural_nets
-        if len(neural_nets) > 0:
-            self.in_dim = neural_nets[0].in_dim
-            self.out_dim = neural_nets[-1].out_dim
+        self._update_param_size()
 
-    def load_target(self, *targets):
-        if len(targets) != len(self.neural_nets):
-            raise NetworkCompositionError('Number of loss targets should be the' \
-                    + ' same as number of stacked neural nets.')
-
-        for i in range(len(targets)):
-            self.neural_nets[i].load_target(targets[i])
-
-    def forward_prop(self, X, add_noise=False, compute_loss=False):
-        x_input = X
-        for i in range(len(self.neural_nets)):
-            x_input = self.neural_nets[i].forward_prop(x_input, 
-                    add_noise=add_noise, compute_loss=compute_loss)
-        return x_input
+    def _update_param_size(self):
+        self.param_size = sum([net.param_size for net in self.neural_nets])
 
     def get_loss(self):
         return sum([net.get_loss() for net in self.neural_nets])
-
-    def backward_prop(self, grad=None):
-        for i in range(len(self.neural_nets))[::-1]:
-            grad = self.neural_nets[i].backward_prop(grad)
-        return grad
 
     def clear_gradient(self):
         for net in self.neural_nets:
@@ -323,6 +318,46 @@ class StackedNeuralNet(BaseNeuralNet):
         return np.concatenate([self.neural_nets[i].get_grad_vec() \
                 for i in range(len(self.neural_nets))])
 
+class StackedNeuralNet(CompositionalNeuralNet):
+    """
+    Create a new network by stacking a few smaller NeuralNets.
+    """
+    def __init__(self, *neural_nets):
+        super(StackedNeuralNet, self).__init__(*neural_nets)
+
+        if len(neural_nets) > 0:
+            self.in_dim = neural_nets[0].in_dim
+            self.out_dim = neural_nets[-1].out_dim
+
+    def load_target(self, *args):
+        # place holder case, where no target is loaded
+        if len(args) == 1 and args[0] is None:
+            return
+
+        if len(args) == 1 and isinstance(args[0], list):
+            targets = args[0]
+        else:
+            targets = args
+
+        if len(targets) != len(self.neural_nets):
+            raise NetworkCompositionError('Number of loss targets should be the' \
+                    + ' same as number of stacked neural nets.')
+
+        for i in range(len(targets)):
+            self.neural_nets[i].load_target(targets[i])
+
+    def forward_prop(self, X, add_noise=False, compute_loss=False):
+        x_input = X
+        for i in range(len(self.neural_nets)):
+            x_input = self.neural_nets[i].forward_prop(x_input, 
+                    add_noise=add_noise, compute_loss=compute_loss)
+        return x_input
+
+    def backward_prop(self, grad=None):
+        for i in range(len(self.neural_nets))[::-1]:
+            grad = self.neural_nets[i].backward_prop(grad)
+        return grad
+
     def save_model_to_binary(self):
         return struct.pack('i', len(self.neural_nets)) \
                 + ''.join([self.neural_nets[i].save_model_to_binary() \
@@ -338,8 +373,76 @@ class StackedNeuralNet(BaseNeuralNet):
 
         self.in_dim = self.neural_nets[0].in_dim
         self.out_dim = self.neural_nets[-1].out_dim
+        self._update_param_size()
 
     def __repr__(self):
         return '{ ' + ' }--{ '.join([str(self.neural_nets[i]) \
                 for i in range(len(self.neural_nets))]) + ' }'
+
+class YNeuralNet(CompositionalNeuralNet):
+    """
+    Create a new network of Y-shape
+             +--> y
+         (1) | (2)
+        x -> h
+             | (3)
+             +--> z
+    from (1) (2) and (3) three component networks.
+
+    Note the Y-shape network does not have out_dim and output, as there are 
+    two outputs.
+    """
+    def __init__(self, in_net, out_net1, out_net2):
+        if (in_net is None) or (out_net1 is None) or (out_net2 is None):
+            return
+
+        super(YNeuralNet, self).__init__(in_net, out_net1, out_net2)
+        self.in_dim = in_net.in_dim
+
+        # for easy reference
+        self.in_net = self.neural_nets[0]
+        self.out_net1 = self.neural_nets[1]
+        self.out_net2 = self.neural_nets[2]
+
+    def load_target(self, in_net_target, out_net1_target, out_net2_target):
+        self.in_net.load_target(in_net_target)
+        self.out_net1.load_target(out_net1_target)
+        self.out_net2.load_target(out_net2_target)
+
+    def forward_prop(self, X, add_noise=False, compute_loss=False):
+        h = self.in_net.forward_prop(X, add_noise=add_noise, compute_loss=compute_loss)
+        self.out_net1.forward_prop(h, add_noise=add_noise, compute_loss=compute_loss)
+        self.out_net2.forward_prop(h, add_noise=add_noise, compute_loss=compute_loss)
+
+    def backward_prop(self):
+        grad = self.out_net1.backward_prop()
+        grad += self.out_net2.backward_prop()
+        grad = self.in_net.backward_prop(grad)
+        return grad
+
+    def save_model_to_binary(self):
+        return struct.pack('i', len(self.neural_nets)) \
+                + ''.join([self.neural_nets[i].save_model_to_binary() \
+                for i in range(len(self.neural_nets))])
+
+    def load_model_from_stream(self, f):
+        n_nets = struct.unpack('i', f.read(4))[0]
+        self.neural_nets = []
+        for i in range(n_nets):
+            net = NeuralNet(0, 0)
+            net.load_model_from_stream(f)
+            self.neural_nets.append(net)
+
+        self.in_dim = self.neural_nets[0].in_dim
+        self.in_net = self.neural_nets[0]
+        self.out_net1 = self.neural_nets[1]
+        self.out_net2 = self.neural_nets[2]
+        self._update_param_size()
+
+    def __repr__(self):
+        s = '{ ' + str(self.in_net) + ' }'
+        return len(s) * ' ' + '  +--{ ' + str(self.out_net1) + ' }\n' \
+                + s + '--+\n' \
+                + len(s) * ' ' + '  +--{ ' + str(self.out_net2) + ' }'
+
 
