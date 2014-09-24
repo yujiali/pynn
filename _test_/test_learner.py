@@ -52,6 +52,4 @@ def test_neural_net_learner():
 
 if __name__ == '__main__':
     test_neural_net_learner()
-        
-
 
