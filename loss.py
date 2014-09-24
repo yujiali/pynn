@@ -146,7 +146,10 @@ class SquaredLoss(Loss):
     Squared loss (x - t)**2
     """
     def load_target(self, target, *args, **kwargs):
-        self.target = target
+        if isinstance(target, gnp.garray):
+            self.target = target
+        else:
+            self.target = gnp.garray(target)
 
     def compute_loss_and_grad(self, pred, compute_grad=False):
         diff = pred - self.target
@@ -169,7 +172,10 @@ class CrossEntropy(Loss):
     representation.
     """
     def load_target(self, target, *args, **kwargs):
-        self.target = target
+        if isinstance(target, gnp.garray):
+            self.target = target
+        else:
+            self.target = gnp.garray(target)
 
     def compute_loss_and_grad(self, pred, compute_grad=False):
         y = gnp.exp(pred - pred.max(axis=1)[:,gnp.newaxis])

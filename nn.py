@@ -22,6 +22,9 @@ class NetworkConstructionError(Exception):
 class NetworkCompositionError(Exception):
     pass
 
+class TargetLoadingError(Exception):
+    pass
+
 class BaseNeuralNet(object):
     """
     Feed-forward neural network base class, each layer is fully connected.
@@ -36,6 +39,12 @@ class BaseNeuralNet(object):
 
         add_noise - add noise if set.
         compute_loss - compute all the losses if set.
+        """
+        raise NotImplementedError()
+
+    def load_target(self, *args, **kwargs):
+        """
+        Load targets used in the losses.
         """
         raise NotImplementedError()
 
@@ -72,11 +81,25 @@ class BaseNeuralNet(object):
         """
         return self.get_param_vec()
 
+    def _set_param_from_vec(self, v, is_noiseless=False):
+        """
+        is_noiseless=True -> set_noiseless_param_from_vec,
+        is_noiseless=False -> set_param_from_vec
+        """
+        raise NotImplementedError()
+
     def set_param_from_vec(self, v):
         """
         Set the parameters of the network from a complete vector representation.
         """
-        raise NotImplementedError()
+        self._set_param_from_vec(v, is_noiseless=False)
+
+    def set_noiseless_param_from_vec(self, v):
+        """
+        Set the parameters of the network from a complete vector representation,
+        but properly scale it to be used in noiseless setting.
+        """
+        self._set_param_from_vec(v, is_noiseless=True)
 
     def get_grad_vec(self):
         """
@@ -221,21 +244,24 @@ class NeuralNet(BaseNeuralNet):
         return np.concatenate([self.layer_params[i].get_noiseless_param_vec() \
                 for i in range(len(self.layer_params))])
 
-    def set_param_from_vec(self, v):
+    def _set_param_from_vec(self, v, is_noiseless=False):
         i_start = 0
         for i in range(len(self.layer_params)):
             p = self.layer_params[i]
-            p.set_param_from_vec(v[i_start:i_start+p.param_size])
+            if is_noiseless:
+                p.set_noiseless_param_from_vec(v[i_start:i_start+p.param_size])
+            else:
+                p.set_param_from_vec(v[i_start:i_start+p.param_size])
             i_start += p.param_size
 
     def get_grad_vec(self):
         return np.concatenate([self.layer_params[i].get_grad_vec() \
                 for i in range(len(self.layer_params))])
 
-    def noiseless_mode_setup(self):
-        self.set_param_from_vec(self.get_noiseless_param_vec())
-        for p in self.layer_params:
-            p.dropout = 0
+    #def noiseless_mode_setup(self):
+    #    self.set_param_from_vec(self.get_noiseless_param_vec())
+    #    for p in self.layer_params:
+    #        p.dropout = 0
 
     def __repr__(self):
         return ' | '.join([str(self.layers[i]) for i in range(len(self.layers))]) \
@@ -307,11 +333,14 @@ class CompositionalNeuralNet(BaseNeuralNet):
         return np.concatenate([self.neural_nets[i].get_noiseless_param_vec() \
                 for i in range(len(self.neural_nets))])
 
-    def set_param_from_vec(self, v):
+    def _set_param_from_vec(self, v, is_noiseless=False):
         i_start = 0
         for i in range(len(self.neural_nets)):
             net = self.neural_nets[i]
-            net.set_param_from_vec(v[i_start:i_start + net.param_size])
+            if is_noiseless:
+                net.set_noiseless_param_from_vec(v[i_start:i_start+net.param_size])
+            else:
+                net.set_param_from_vec(v[i_start:i_start + net.param_size])
             i_start += net.param_size
 
     def get_grad_vec(self):
@@ -404,10 +433,18 @@ class YNeuralNet(CompositionalNeuralNet):
         self.out_net1 = self.neural_nets[1]
         self.out_net2 = self.neural_nets[2]
 
-    def load_target(self, in_net_target, out_net1_target, out_net2_target):
-        self.in_net.load_target(in_net_target)
-        self.out_net1.load_target(out_net1_target)
-        self.out_net2.load_target(out_net2_target)
+    def load_target(self, *args):
+        """
+        args can be a single list, or three variables
+        """
+        if len(args) == 1 and isinstance(args[0], list):
+            args = args[0]
+        elif len(args) != 3:
+            raise TargetLoadingError('Target misspecified.')
+
+        self.in_net.load_target(args[0])
+        self.out_net1.load_target(args[1])
+        self.out_net2.load_target(args[2])
 
     def forward_prop(self, X, add_noise=False, compute_loss=False):
         h = self.in_net.forward_prop(X, add_noise=add_noise, compute_loss=compute_loss)
