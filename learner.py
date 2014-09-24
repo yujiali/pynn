@@ -49,12 +49,12 @@ class Learner(object):
         self.net.set_noiseless_param_from_vec(w)
 
         self.net.forward_prop(self.x_train, add_noise=False, compute_loss=True)
-        train_loss = self.net.get_loss()
+        train_loss = self.net.get_loss() / self.x_train.shape[0]
 
         if self.use_validation:
             self.net.load_target(self.t_val)
             self.net.forward_prop(self.x_val, add_noise=False, compute_loss=True)
-            val_loss = self.net.get_loss()
+            val_loss = self.net.get_loss() / self.x_val.shape[0]
             self.net.load_target(self.t_train)
 
             s = 'train loss %.4f, val loss ' % train_loss
@@ -126,13 +126,13 @@ class ClassificationLearner(Learner):
         self.net.set_noiseless_param_from_vec(w)
 
         y = self.net.forward_prop(self.x_train, add_noise=False, compute_loss=True)
-        train_loss = self.net.get_loss()
+        train_loss = self.net.get_loss() / self.x_train.shape[0]
         train_acc = self._compute_accuracy(self.t_train, y.argmax(axis=1))
 
         if self.use_validation:
             self.net.load_target(self.t_val)
             y = self.net.forward_prop(self.x_val, add_noise=False, compute_loss=True)
-            val_loss = self.net.get_loss()
+            val_loss = self.net.get_loss() / self.x_val.shape[0]
             val_acc = self._compute_accuracy(self.t_val, y.argmax(axis=1))
             self.net.load_target(self.t_train)
 
