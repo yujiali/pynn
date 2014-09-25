@@ -570,8 +570,8 @@ def test_y_net_io():
     print 'Net #2: \n' + str(ynet2)
     test_passed = (str(ynet1) == str(ynet2))
 
-    test_passed = test_passed and test_vec_pair(ynet1.get_param_vec(), 'Net #1',
-            ynet2.get_param_vec(), 'Net #2')
+    test_passed = test_vec_pair(ynet1.get_param_vec(), 'Net #1',
+            ynet2.get_param_vec(), 'Net #2') and test_passed
     return test_passed
 
 def test_all_y_net():
@@ -597,6 +597,102 @@ def test_all_y_net():
 
     return n_success, n_tests
 
+def create_autoencoder(dropout_rate=0):
+    in_dim = 3
+    h_dim = 2
+
+    net1 = nn.NeuralNet(in_dim, h_dim)
+    net1.add_layer(2, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=0)
+    net1.add_layer(0, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
+    net2 = nn.NeuralNet(h_dim, in_dim)
+    net2.add_layer(2, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
+    net2.add_layer(1, nonlin_type=ly.NONLIN_NAME_TANH, dropout=dropout_rate)
+    net2.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=dropout_rate)
+    net2.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=1.5)
+
+    autoencoder = nn.AutoEncoder(net1, net2)
+    return autoencoder
+
+def test_autoencoder(add_noise=False):
+    print 'Testing AutoEncoder ' + ('with noise' if add_noise else 'without noise')
+    n_cases = 5
+    seed = 8
+
+    dropout_rate = 0.5 if add_noise else 0
+
+    autoencoder = create_autoencoder(dropout_rate)
+    print autoencoder
+
+    x = gnp.randn(n_cases, autoencoder.in_dim)
+
+    if add_noise:
+        gnp.seed_rand(seed)
+
+    autoencoder.clear_gradient()
+    autoencoder.forward_prop(x, add_noise=add_noise, compute_loss=True)
+    autoencoder.backward_prop()
+
+    backprop_grad = autoencoder.get_grad_vec()
+
+    f = fdiff_grad_generator(autoencoder, x, None, add_noise=add_noise, seed=seed)
+    fdiff_grad = finite_difference_gradient(f, autoencoder.get_param_vec())
+
+    test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
+            backprop_grad, '  Backpropagation Gradient')
+    print ''
+
+    gnp.seed_rand(int(time.time()))
+    return test_passed
+
+def test_net_io(f_create, f_create_void):
+    net1 = f_create()
+    print 'Testing %s I/O' % net1.__class__.__name__
+
+    net1.save_model_to_file(_TEMP_FILE_NAME)
+
+    net2 = f_create_void()
+    net2.load_model_from_file(_TEMP_FILE_NAME)
+
+    os.remove(_TEMP_FILE_NAME)
+
+    print 'Net #1: \n' + str(net1)
+    print 'Net #2: \n' + str(net2)
+    test_passed = (str(net1) == str(net2))
+
+    test_passed = test_passed and test_vec_pair(net1.get_param_vec(), 'Net #1',
+            net2.get_param_vec(), 'Net #2')
+    return test_passed
+
+def test_autoencoder_io():
+    def f_create():
+        return create_autoencoder(0.5)
+    def f_create_void():
+        return nn.AutoEncoder()
+    return test_net_io(f_create, f_create_void)
+
+def test_all_autoencoder():
+    print ''
+    print '==================='
+    print 'Testing AutoEncoder'
+    print '==================='
+    print ''
+
+    n_success = 0
+    if test_autoencoder(add_noise=False):
+        n_success += 1
+    if test_autoencoder(add_noise=True):
+        n_success += 1
+    if test_autoencoder_io():
+        n_success += 1
+
+    n_tests = 3
+
+    print '=============='
+    print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)
+    print ''
+
+    return n_success, n_tests
+
 def run_all_tests():
     gnp.seed_rand(int(time.time()))
 
@@ -604,7 +700,8 @@ def run_all_tests():
     n_tests = 0
 
     test_list = [test_all_nonlin, test_all_loss, test_all_layer,
-            test_all_neuralnet, test_all_stacked_net, test_all_y_net]
+            test_all_neuralnet, test_all_stacked_net, test_all_y_net, 
+            test_all_autoencoder]
     for batch_test in test_list:
         success_in_batch, tests_in_batch = batch_test()
         n_success += success_in_batch

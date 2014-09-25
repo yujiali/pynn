@@ -347,6 +347,19 @@ class CompositionalNeuralNet(BaseNeuralNet):
         return np.concatenate([self.neural_nets[i].get_grad_vec() \
                 for i in range(len(self.neural_nets))])
 
+    def save_model_to_binary(self):
+        return struct.pack('i', len(self.neural_nets)) \
+                + ''.join([self.neural_nets[i].save_model_to_binary() \
+                for i in range(len(self.neural_nets))])
+
+    def load_model_from_stream(self, f):
+        n_nets = struct.unpack('i', f.read(4))[0]
+        self.neural_nets = []
+        for i in range(n_nets):
+            net = NeuralNet(0, 0)
+            net.load_model_from_stream(f)
+            self.neural_nets.append(net)
+
 class StackedNeuralNet(CompositionalNeuralNet):
     """
     Create a new network by stacking a few smaller NeuralNets.
@@ -387,18 +400,8 @@ class StackedNeuralNet(CompositionalNeuralNet):
             grad = self.neural_nets[i].backward_prop(grad)
         return grad
 
-    def save_model_to_binary(self):
-        return struct.pack('i', len(self.neural_nets)) \
-                + ''.join([self.neural_nets[i].save_model_to_binary() \
-                for i in range(len(self.neural_nets))])
-
     def load_model_from_stream(self, f):
-        n_nets = struct.unpack('i', f.read(4))[0]
-        self.neural_nets = []
-        for i in range(n_nets):
-            net = NeuralNet(0, 0)
-            net.load_model_from_stream(f)
-            self.neural_nets.append(net)
+        super(StackedNeuralNet, self).load_model_from_stream(f)
 
         self.in_dim = self.neural_nets[0].in_dim
         self.out_dim = self.neural_nets[-1].out_dim
@@ -457,19 +460,8 @@ class YNeuralNet(CompositionalNeuralNet):
         grad = self.in_net.backward_prop(grad)
         return grad
 
-    def save_model_to_binary(self):
-        return struct.pack('i', len(self.neural_nets)) \
-                + ''.join([self.neural_nets[i].save_model_to_binary() \
-                for i in range(len(self.neural_nets))])
-
     def load_model_from_stream(self, f):
-        n_nets = struct.unpack('i', f.read(4))[0]
-        self.neural_nets = []
-        for i in range(n_nets):
-            net = NeuralNet(0, 0)
-            net.load_model_from_stream(f)
-            self.neural_nets.append(net)
-
+        super(YNeuralNet, self).load_model_from_stream(f)
         self.in_dim = self.neural_nets[0].in_dim
         self.in_net = self.neural_nets[0]
         self.out_net1 = self.neural_nets[1]
@@ -481,5 +473,47 @@ class YNeuralNet(CompositionalNeuralNet):
         return len(s) * ' ' + '  +--{ ' + str(self.out_net1) + ' }\n' \
                 + s + '--+\n' \
                 + len(s) * ' ' + '  +--{ ' + str(self.out_net2) + ' }'
+
+class AutoEncoder(CompositionalNeuralNet):
+    """
+    AutoEncoder network, with one encoder and one decoder.
+    """
+    def __init__(self, encoder=None, decoder=None):
+        # place holder constructor when either of encoder/decoder is None
+        if encoder is None or decoder is None:
+            return
+        super(AutoEncoder, self).__init__(encoder, decoder)
+        self.encoder = encoder
+        self.decoder = decoder
+        self.in_dim = encoder.in_dim
+        self.out_dim = decoder.out_dim
+
+    def load_target(self, *args):
+        pass
+
+    def forward_prop(self, X, add_noise=False, compute_loss=False):
+        # input is the target
+        if compute_loss:
+            self.decoder.load_target(X)
+
+        h = self.encoder.forward_prop(X, add_noise=add_noise, compute_loss=compute_loss)
+        self.decoder.forward_prop(h, add_noise=add_noise, compute_loss=compute_loss)
+
+    def encode(self, X):
+        return self.encoder.forward_prop(X, add_noise=False, compute_loss=False)
+
+    def backward_prop(self):
+        grad = self.decoder.backward_prop()
+        return self.encoder.backward_prop(grad)
+
+    def load_model_from_stream(self, f):
+        super(AutoEncoder, self).load_model_from_stream(f)
+        self.encoder = self.neural_nets[0]
+        self.decoder = self.neural_nets[1]
+        self.in_dim = self.encoder.in_dim
+        self.out_dim = self.decoder.out_dim
+
+    def __repr__(self):
+        return 'Encoder { ' + str(self.encoder) + '} Decoder { ' + str(self.decoder) + ' }'
 
 

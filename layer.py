@@ -162,14 +162,18 @@ class Layer(object):
         return struct.pack('ii', self.in_dim, self.out_dim) \
                 + struct.pack('i', self.params._param_id) \
                 + struct.pack('i', self.nonlin.get_id()) \
-                + struct.pack('i', self.loss.get_id() \
-                if self.loss is not None else ls._LOSS_ID_NONE)
+                + (struct.pack('i', self.loss.get_id() \
+                if self.loss is not None else ls._LOSS_ID_NONE)) \
+                + (struct.pack('f', self.loss.weight \
+                if self.loss is not None else 0))
 
     def load_from_stream(self, f):
-        in_dim, out_dim, _param_id, nonlin_id, loss_id = \
-                struct.unpack('iiiii', f.read(5*4))
+        in_dim, out_dim, _param_id, nonlin_id, loss_id, loss_weight = \
+                struct.unpack('iiiiif', f.read(6*4))
         nonlin = get_nonlin_from_type_id(nonlin_id)
         loss = ls.get_loss_from_type_id(loss_id)
+        if loss is not None:
+            loss.set_weight(loss_weight)
 
         self.build_layer(in_dim, out_dim, nonlin, 
                 init_scale=const.DEFAULT_PARAM_INIT_SCALE, loss=loss)
