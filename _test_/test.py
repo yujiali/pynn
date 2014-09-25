@@ -69,6 +69,25 @@ def fdiff_grad_generator(net, x, t, add_noise=False, seed=None):
 
     return f
 
+def test_net_io(f_create, f_create_void):
+    net1 = f_create()
+    print 'Testing %s I/O' % net1.__class__.__name__
+
+    net1.save_model_to_file(_TEMP_FILE_NAME)
+
+    net2 = f_create_void()
+    net2.load_model_from_file(_TEMP_FILE_NAME)
+
+    os.remove(_TEMP_FILE_NAME)
+
+    print 'Net #1: \n' + str(net1)
+    print 'Net #2: \n' + str(net2)
+    test_passed = (str(net1) == str(net2))
+
+    test_passed = test_passed and test_vec_pair(net1.get_param_vec(), 'Net #1',
+            net2.get_param_vec(), 'Net #2')
+    return test_passed
+
 def test_nonlin(nonlin):
     print 'Testing nonlinearity <%s>' % nonlin.get_name()
 
@@ -234,22 +253,15 @@ def test_all_layer():
 
     return n_success, n_tests
 
-def test_neuralnet(add_noise=False):
-    print 'Testing NeuralNet, ' + ('with noise' if add_noise else 'without noise')
+def create_neuralnet(dropout_rate):
     in_dim = 3
     out_dim = 2
     h1_dim = 2
     h2_dim = 2
     h3_dim = 2
-    n_cases = 5
-
-    seed = 8
-    # gnp.seed_rand(seed)
-
-    dropout_rate = 0.5 if add_noise else 0
 
     net = nn.NeuralNet(in_dim, out_dim)
-    net.add_layer(h1_dim, nonlin_type=ly.NONLIN_NAME_TANH, dropout=dropout_rate)
+    net.add_layer(h1_dim, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
     net.add_layer(h2_dim, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
     #net.add_layer(h3_dim, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
     #net.add_layer(10, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
@@ -257,11 +269,20 @@ def test_neuralnet(add_noise=False):
     net.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=dropout_rate)
 
     net.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=1.1)
-    
+    return net
+
+def test_neuralnet(add_noise=False):
+    print 'Testing NeuralNet, ' + ('with noise' if add_noise else 'without noise')
+    n_cases = 5
+    seed = 8
+    dropout_rate = 0.5 if add_noise else 0
+
+    net = create_neuralnet(dropout_rate)
+   
     print net
 
-    x = gnp.randn(n_cases, in_dim)
-    t = gnp.randn(n_cases, out_dim)
+    x = gnp.randn(n_cases, net.in_dim)
+    t = gnp.randn(n_cases, net.out_dim)
 
     if net.loss.target_should_be_one_hot():
         new_t = np.zeros(t.shape)
@@ -303,28 +324,11 @@ def test_neuralnet(add_noise=False):
     return test_passed
 
 def test_neuralnet_io():
-    print 'Testing NeuralNet I/O'
-
-    net = nn.NeuralNet(3,2)
-    net.add_layer(2, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
-    h = net.add_layer(2, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=0.5)
-    net.add_layer(nonlin_type=ly.NONLIN_NAME_RELU, dropout=0.5, params=h.params)
-    net.add_layer(nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=0.5, params=h.params)
-    net.add_layer(0)
-    net.save_model_to_file(_TEMP_FILE_NAME)
-
-    net2 = nn.NeuralNet(0,0)
-    net2.load_model_from_file(_TEMP_FILE_NAME)
-
-    os.remove(_TEMP_FILE_NAME)
-
-    print 'Net #1:\n' + str(net)
-    print 'Net #2:\n' + str(net2)
-    test_passed = (str(net) == str(net2))
-
-    test_passed = test_passed and test_vec_pair(net.get_param_vec(), 'Net #1',
-            net2.get_param_vec(), 'Net #2')
-    return test_passed
+    def f_create():
+        return create_neuralnet(0.5)
+    def f_create_void():
+        return nn.NeuralNet(0,0)
+    return test_net_io(f_create, f_create_void)
 
 def test_all_neuralnet():
     print ''
@@ -349,16 +353,7 @@ def test_all_neuralnet():
 
     return n_success, n_tests
 
-def test_stacked_net_gradient(add_noise=False):
-    print 'Testing StackedNeuralNet'
-
-    in_dim = 3
-    out_dim = [5, 2, 2]
-    n_cases = 5
-    seed = 8
-
-    dropout_rate = 0.5 if add_noise else 0
-
+def create_stacked_net(in_dim, out_dim, dropout_rate):
     net1 = nn.NeuralNet(3,out_dim[0])
     net1.add_layer(2, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
     net1.add_layer(0, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
@@ -373,7 +368,18 @@ def test_stacked_net_gradient(add_noise=False):
     net3.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=0)
     net3.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=1)
 
-    stacked_net = nn.StackedNeuralNet(net1, net2, net3)
+    return nn.StackedNeuralNet(net1, net2, net3)
+
+def test_stacked_net_gradient(add_noise=False):
+    print 'Testing StackedNeuralNet'
+
+    in_dim = 3
+    out_dim = [5, 2, 2]
+    n_cases = 5
+    seed = 8
+    dropout_rate = 0.5 if add_noise else 0
+
+    stacked_net = create_stacked_net(in_dim, out_dim, dropout_rate)
 
     print stacked_net
 
@@ -416,45 +422,11 @@ def test_stacked_net_gradient(add_noise=False):
     return test_passed
 
 def test_stacked_net_io():
-    print 'Testing StackedNeuralNet I/O'
-
-    in_dim = 3
-    out_dim = [5, 2, 2]
-    n_cases = 5
-    seed = 8
-
-    dropout_rate = 0.5
-
-    net1 = nn.NeuralNet(3, out_dim[0])
-    net1.add_layer(2, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
-    net1.add_layer(0, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
-    net1.set_loss(ls.LOSS_NAME_SQUARED)
-
-    net2 = nn.NeuralNet(out_dim[0], out_dim[1])
-    net2.add_layer(3, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
-    net2.add_layer(0, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
-
-    net3 = nn.NeuralNet(out_dim[1], out_dim[2])
-    net3.add_layer(1, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
-    net3.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=0)
-    net3.set_loss(ls.LOSS_NAME_SQUARED)
-
-    stacked_net = nn.StackedNeuralNet(net1, net2, net3)
-
-    stacked_net.save_model_to_file(_TEMP_FILE_NAME)
-
-    stacked_net2 = nn.StackedNeuralNet()
-    stacked_net2.load_model_from_file(_TEMP_FILE_NAME)
-
-    os.remove(_TEMP_FILE_NAME)
-
-    print 'Net #1:\n' + str(stacked_net)
-    print 'Net #2:\n' + str(stacked_net2)
-    test_passed = (str(stacked_net) == str(stacked_net2))
-
-    test_passed = test_passed and test_vec_pair(stacked_net.get_param_vec(), 'Net #1',
-            stacked_net2.get_param_vec(), 'Net #2')
-    return test_passed
+    def f_create():
+        return create_stacked_net(3, [5,2,2], 0.5)
+    def f_create_void():
+        return nn.StackedNeuralNet()
+    return test_net_io(f_create, f_create_void)
 
 def test_all_stacked_net():
     print ''
@@ -479,15 +451,7 @@ def test_all_stacked_net():
 
     return n_success, n_tests
 
-def test_y_net_gradient(add_noise=False):
-    print 'Testing YNeuralNet ' + ('with noise' if add_noise else 'without noise')
-
-    in_dim = 3
-    out_dim = [2, 2, 2]
-    n_cases = 5
-    seed = 8
-
-    dropout_rate = 0.5 if add_noise else 0
+def create_y_net(in_dim, out_dim, dropout_rate):
 
     net01 = nn.NeuralNet(3,2)
     net01.add_layer(0, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
@@ -506,6 +470,19 @@ def test_y_net_gradient(add_noise=False):
     net3.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=1.5)
 
     ynet = nn.YNeuralNet(net1, net2, net3)
+
+    return ynet
+
+def test_y_net_gradient(add_noise=False):
+    print 'Testing YNeuralNet ' + ('with noise' if add_noise else 'without noise')
+
+    in_dim = 3
+    out_dim = [2, 2, 2]
+    n_cases = 5
+    seed = 8
+    dropout_rate = 0.5 if add_noise else 0
+
+    ynet = create_y_net(in_dim, out_dim, dropout_rate)
 
     print ynet 
 
@@ -536,43 +513,31 @@ def test_y_net_gradient(add_noise=False):
     return test_passed
 
 def test_y_net_io():
-    print 'Testing YNeuralNet I/O'
-    in_dim = 3
-    out_dim = [2, 2, 2]
-    n_cases = 5
-    seed = 8
+    def f_create():
+        in_dim = 3
+        out_dim = [2, 2, 2]
+        n_cases = 5
+        seed = 8
 
-    dropout_rate = 0.5
+        dropout_rate = 0.5
 
-    net1 = nn.NeuralNet(3,2)
-    net1.add_layer(2, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
-    net1.add_layer(0, nonlin_type=ly.NONLIN_NAME_TANH, dropout=dropout_rate)
-    net1.set_loss(ls.LOSS_NAME_SQUARED)
+        net1 = nn.NeuralNet(3,2)
+        net1.add_layer(2, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
+        net1.add_layer(0, nonlin_type=ly.NONLIN_NAME_TANH, dropout=dropout_rate)
+        net1.set_loss(ls.LOSS_NAME_SQUARED)
 
-    net2 = nn.NeuralNet(out_dim[0], out_dim[1])
-    net2.add_layer(0, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
-    net2.set_loss(ls.LOSS_NAME_SQUARED)
+        net2 = nn.NeuralNet(out_dim[0], out_dim[1])
+        net2.add_layer(0, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
+        net2.set_loss(ls.LOSS_NAME_SQUARED)
 
-    net3 = nn.NeuralNet(out_dim[0], out_dim[2])
-    net3.add_layer(1, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
-    net3.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=0)
-    net3.set_loss(ls.LOSS_NAME_SQUARED)
-
-    ynet1 = nn.YNeuralNet(net1, net2, net3)
-    ynet1.save_model_to_file(_TEMP_FILE_NAME)
-
-    ynet2 = nn.YNeuralNet(None, None, None)
-    ynet2.load_model_from_file(_TEMP_FILE_NAME)
-
-    os.remove(_TEMP_FILE_NAME)
-
-    print 'Net #1: \n' + str(ynet1)
-    print 'Net #2: \n' + str(ynet2)
-    test_passed = (str(ynet1) == str(ynet2))
-
-    test_passed = test_vec_pair(ynet1.get_param_vec(), 'Net #1',
-            ynet2.get_param_vec(), 'Net #2') and test_passed
-    return test_passed
+        net3 = nn.NeuralNet(out_dim[0], out_dim[2])
+        net3.add_layer(1, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
+        net3.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=0)
+        net3.set_loss(ls.LOSS_NAME_SQUARED)
+        return nn.YNeuralNet(net1, net2, net3)
+    def f_create_void():
+        return nn.YNeuralNet()
+    return test_net_io(f_create, f_create_void)
 
 def test_all_y_net():
     print ''
@@ -642,25 +607,6 @@ def test_autoencoder(add_noise=False):
     print ''
 
     gnp.seed_rand(int(time.time()))
-    return test_passed
-
-def test_net_io(f_create, f_create_void):
-    net1 = f_create()
-    print 'Testing %s I/O' % net1.__class__.__name__
-
-    net1.save_model_to_file(_TEMP_FILE_NAME)
-
-    net2 = f_create_void()
-    net2.load_model_from_file(_TEMP_FILE_NAME)
-
-    os.remove(_TEMP_FILE_NAME)
-
-    print 'Net #1: \n' + str(net1)
-    print 'Net #2: \n' + str(net2)
-    test_passed = (str(net1) == str(net2))
-
-    test_passed = test_passed and test_vec_pair(net1.get_param_vec(), 'Net #1',
-            net2.get_param_vec(), 'Net #2')
     return test_passed
 
 def test_autoencoder_io():

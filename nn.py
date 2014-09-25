@@ -424,7 +424,7 @@ class YNeuralNet(CompositionalNeuralNet):
     Note the Y-shape network does not have out_dim and output, as there are 
     two outputs.
     """
-    def __init__(self, in_net, out_net1, out_net2):
+    def __init__(self, in_net=None, out_net1=None, out_net2=None):
         if (in_net is None) or (out_net1 is None) or (out_net2 is None):
             return
 
