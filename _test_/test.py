@@ -108,8 +108,10 @@ def test_all_nonlin():
 
     return n_success, n_tests
 
-def test_loss(loss):
-    print 'Testing loss <%s>' % loss.get_name()
+def test_loss(loss, weight=1):
+    print 'Testing loss <%s>, weight=%g' % (loss.get_name(), weight)
+
+    loss.set_weight(weight)
 
     sx, sy = 3, 4
 
@@ -144,11 +146,13 @@ def test_all_loss():
     print '=================='
     print ''
 
-    n_tests = len(ls.LOSS_LIST)
+    n_tests = len(ls.LOSS_LIST) * 2
     n_success = 0
 
     for loss in ls.LOSS_LIST:
-        if test_loss(loss):
+        if test_loss(loss, weight=1):
+            n_success += 1
+        if test_loss(loss, weight=0.5):
             n_success += 1
 
     print '=============='
@@ -172,6 +176,7 @@ def test_layer(add_noise=False, no_loss=False):
     else:
         loss = ls.get_loss_from_type_name(ls.LOSS_NAME_SQUARED)
         loss.load_target(t)
+        loss.set_weight(2.5)
 
     seed = 8
     if add_noise:
@@ -251,7 +256,7 @@ def test_neuralnet(add_noise=False):
     #net.add_layer(10, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
     net.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=dropout_rate)
 
-    net.set_loss(ls.LOSS_NAME_SQUARED)
+    net.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=1.1)
     
     print net
 
@@ -357,7 +362,7 @@ def test_stacked_net_gradient(add_noise=False):
     net1 = nn.NeuralNet(3,out_dim[0])
     net1.add_layer(2, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
     net1.add_layer(0, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
-    net1.set_loss(ls.LOSS_NAME_SQUARED)
+    net1.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=0.5)
 
     net2 = nn.NeuralNet(out_dim[0], out_dim[1])
     net2.add_layer(3, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
@@ -366,7 +371,7 @@ def test_stacked_net_gradient(add_noise=False):
     net3 = nn.NeuralNet(out_dim[1], out_dim[2])
     net3.add_layer(1, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
     net3.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=0)
-    net3.set_loss(ls.LOSS_NAME_SQUARED)
+    net3.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=1)
 
     stacked_net = nn.StackedNeuralNet(net1, net2, net3)
 
@@ -488,17 +493,17 @@ def test_y_net_gradient(add_noise=False):
     net01.add_layer(0, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
     net02 = nn.NeuralNet(2, out_dim[0])
     net02.add_layer(0, nonlin_type=ly.NONLIN_NAME_TANH, dropout=dropout_rate)
-    net02.set_loss(ls.LOSS_NAME_SQUARED)
+    net02.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=0.5)
     net1 = nn.StackedNeuralNet(net01, net02)
 
     net2 = nn.NeuralNet(out_dim[0], out_dim[1])
     net2.add_layer(0, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
-    net2.set_loss(ls.LOSS_NAME_SQUARED)
+    net2.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=0)
 
     net3 = nn.NeuralNet(out_dim[0], out_dim[2])
     net3.add_layer(1, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
     net3.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=0)
-    net3.set_loss(ls.LOSS_NAME_SQUARED)
+    net3.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=1.5)
 
     ynet = nn.YNeuralNet(net1, net2, net3)
 

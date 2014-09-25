@@ -189,11 +189,12 @@ class NeuralNet(BaseNeuralNet):
     def _update_param_size(self):
         self.param_size = sum([p.param_size for p in self.layer_params])
 
-    def set_loss(self, loss_type):
+    def set_loss(self, loss_type, loss_weight=1):
         """
         loss_type is the name of the loss.
         """
         self.loss = ls.get_loss_from_type_name(loss_type)
+        self.loss.set_weight(loss_weight)
         self.layers[-1].set_loss(self.loss)
 
     def load_target(self, target, *args, **kwargs):
@@ -265,8 +266,7 @@ class NeuralNet(BaseNeuralNet):
 
     def __repr__(self):
         return ' | '.join([str(self.layers[i]) for i in range(len(self.layers))]) \
-                + ' | Loss <%s>' % (
-                        self.loss.get_name() if self.loss is not None else 'none')
+                + ' | ' + (str(self.loss) if self.loss is not None else 'No Loss')
 
     def save_model_to_binary(self):
         # network structure first

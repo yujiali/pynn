@@ -12,6 +12,7 @@ class Loss(object):
     """
     def __init__(self):
         self.loss_value = 0
+        self.weight = 1
 
     def load_target(self, target, *args, **kwargs):
         """
@@ -19,7 +20,14 @@ class Loss(object):
         """
         pass
 
-    def compute_loss_and_grad(self, pred, compute_grad=False):
+    def set_weight(self, weight):
+        """
+        Specify the weight for this loss, which is a constant scale factor
+        that both loss and gradient will use.
+        """
+        self.weight = weight
+
+    def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
         """
         Compute loss and output gradient.
 
@@ -31,9 +39,26 @@ class Loss(object):
         Return: (loss, grad)
             loss is one single number, the loss for the predictions
             grad: (n_cases, n_dims) gradient matrix, if compute_grad set to
-                False, this may not be computed to save time.
+                False, this may not be computed to save time, but a place
+                holder will be used.
         """
         raise NotImplementedError()
+
+    def compute_loss_and_grad(self, pred, compute_grad=False):
+        """
+        Compute the weighted loss and loss gradient.
+
+        See compute_not_weighted_loss_and_grad for details.
+
+        User of the Loss object should use this function.
+        """
+        loss, loss_grad = self.compute_not_weighted_loss_and_grad(pred, compute_grad)
+        if self.weight == 1:
+            self.loss_value = loss
+            return self.loss_value, loss_grad
+        else:
+            self.loss_value = loss * self.weight
+            return self.loss_value, loss_grad * self.weight
 
     def get_most_recent_loss(self):
         """
@@ -67,6 +92,9 @@ class Loss(object):
         have one entry to be one and all others be zero.
         """
         return False
+
+    def __repr__(self):
+        return 'Loss <%s> w=%g' % (self.get_name(), self.weight)
 
 _LOSS_ID_NONE = 0
 
@@ -113,9 +141,8 @@ class DebugLoss(Loss):
     """
     Used for debugging only.
     """
-    def compute_loss_and_grad(self, pred, compute_grad=False):
-        self.loss_value = pred.sum()
-        return self.loss_value, gnp.ones(pred.shape)
+    def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
+        return pred.sum(), gnp.ones(pred.shape)
 
     def get_name(self):
         return 'debug'
@@ -130,8 +157,7 @@ class ZeroLoss(Loss):
     Simply no loss.
     """
     def compute_loss_and_grad(self, pred, compute_grad=False):
-        self.loss_value = 0
-        return self.loss_value, gnp.zeros(pred.shape)
+        return 0, gnp.zeros(pred.shape)
 
     def get_name(self):
         return 'zero'
@@ -151,10 +177,9 @@ class SquaredLoss(Loss):
         else:
             self.target = gnp.garray(target)
 
-    def compute_loss_and_grad(self, pred, compute_grad=False):
+    def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
         diff = pred - self.target
-        self.loss_value = (diff**2).sum() / 2
-        return self.loss_value, diff
+        return (diff**2).sum() / 2, diff
 
     def get_name(self):
         return 'squared'
@@ -177,12 +202,11 @@ class CrossEntropy(Loss):
         else:
             self.target = gnp.garray(target)
 
-    def compute_loss_and_grad(self, pred, compute_grad=False):
+    def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
         y = gnp.exp(pred - pred.max(axis=1)[:,gnp.newaxis])
         y = y / y.sum(axis=1)[:,gnp.newaxis]
 
-        self.loss_value = -(self.target * gnp.log(y)).sum()
-        return self.loss_value, y - self.target 
+        return -(self.target * gnp.log(y)).sum(), y - self.target
 
     def get_name(self):
         return 'crossentropy'
