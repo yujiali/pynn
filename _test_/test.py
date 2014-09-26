@@ -198,16 +198,14 @@ def test_layer(add_noise=False, no_loss=False):
         loss.set_weight(2.5)
 
     seed = 8
-    if add_noise:
-        gnp.seed_rand(seed)
-        dropout_rate = 0.5
-    else:
-        dropout_rate = 0
+    dropout_rate = 0.5 if add_noise else 0
 
     layer = ly.Layer(in_dim, out_dim, nonlin_type=ly.NONLIN_NAME_TANH, dropout=dropout_rate, loss=loss)
 
     w_0 = layer.params.get_param_vec()
 
+    if add_noise:
+        gnp.seed_rand(seed)
     layer.params.clear_gradient()
     layer.forward_prop(x, compute_loss=True)
     layer.backward_prop()
@@ -302,18 +300,7 @@ def test_neuralnet(add_noise=False):
 
     backprop_grad = net.get_grad_vec()
 
-    def f(w):
-        if add_noise:
-            gnp.seed_rand(seed)
-
-        w_0 = net.get_param_vec()
-        net.set_param_from_vec(w)
-        net.forward_prop(x, add_noise=add_noise, compute_loss=True)
-        loss = net.get_loss()
-        net.set_param_from_vec(w_0)
-
-        return loss
-
+    f = fdiff_grad_generator(net, x, None, add_noise=add_noise, seed=seed)
     fdiff_grad = finite_difference_gradient(f, net.get_param_vec())
 
     test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
@@ -398,20 +385,7 @@ def test_stacked_net_gradient(add_noise=False):
 
     backprop_grad = stacked_net.get_grad_vec()
 
-    def f(w):
-        w_0 = stacked_net.get_param_vec()
-        stacked_net.set_param_from_vec(w)
-
-        if add_noise:
-            gnp.seed_rand(seed)
-
-        stacked_net.forward_prop(x, add_noise=add_noise, compute_loss=True)
-        loss = stacked_net.get_loss()
-
-        stacked_net.set_param_from_vec(w_0)
-
-        return loss
-
+    f = fdiff_grad_generator(stacked_net, x, None, add_noise=add_noise, seed=seed)
     fdiff_grad = finite_difference_gradient(f, stacked_net.get_param_vec())
 
     test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
