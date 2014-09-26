@@ -28,6 +28,12 @@ class Learner(object):
 
         self.use_validation = (self.x_val is not None) and (self.t_val is not None)
 
+    def load_train_target(self):
+        """
+        Load targets for training.
+        """
+        self.net.load_target(self.t_train)
+
     def f_and_fprime(self, w):
         self.net.set_param_from_vec(w)
         self.net.clear_gradient()
@@ -60,7 +66,7 @@ class Learner(object):
             s = 'train loss %.4f, val loss ' % train_loss
             if self.best_obj is None or val_loss < self.best_obj:
                 self.best_obj = val_loss
-                self.best_w = w
+                self.best_w = w.copy()
                 s += co.good_colored_str('%.4f' % val_loss)
             else:
                 s += '%.4f' % val_loss
@@ -68,7 +74,7 @@ class Learner(object):
             s = 'train loss '
             if self.best_obj is None or train_loss < self.best_obj:
                 self.best_obj = train_loss
-                self.best_w = w
+                self.best_w = w.copy()
                 s += co.good_colored_str('%.4f' % train_loss)
             else:
                 s += '%.4f' % train_loss
@@ -92,7 +98,7 @@ class Learner(object):
         f_info will be overwritten here.
         """
         self._prepare_for_training()
-        self.net.load_target(self.t_train)
+        self.load_train_target()
         kwargs['f_info'] = self.f_info
         opt.fmin_gradient_descent(self.f_and_fprime, self.init_w, **kwargs)
         self.f_post_training()
@@ -139,7 +145,7 @@ class ClassificationLearner(Learner):
             s = 'train loss %.4f, acc %.4f, val loss %.4f, acc ' % (train_loss, train_acc, val_loss)
             if self.best_obj is None or val_acc > self.best_obj:
                 self.best_obj = val_acc 
-                self.best_w = w
+                self.best_w = w.copy()
                 s += co.good_colored_str('%.4f' % val_acc)
             else:
                 s += '%.4f' % val_acc
@@ -147,7 +153,7 @@ class ClassificationLearner(Learner):
             s = 'train loss %.4f, acc ' % train_loss
             if self.best_obj is None or train_acc < self.best_obj:
                 self.best_obj = train_acc
-                self.best_w = w
+                self.best_w = w.copy()
                 s += co.good_colored_str('%.4f' % train_acc)
             else:
                 s += '%.4f' % train_acc
