@@ -6,6 +6,7 @@ Yujia Li, 09/2014
 import pyopt.opt as opt
 import color as co
 import numpy as np
+import scipy.optimize as spopt
 
 class Learner(object):
     """
@@ -103,8 +104,11 @@ class Learner(object):
         opt.fmin_gradient_descent(self.f_and_fprime, self.init_w, **kwargs)
         self.f_post_training()
 
-    def train_lbfgs(self, *args, **kwargs):
-        pass
+    def train_lbfgs(self, **kwargs):
+        self._prepare_for_training()
+        self.load_train_target()
+        self.best_w, self.best_obj, _ = spopt.fmin_l_bfgs_b(self.f_and_fprime, self.init_w, **kwargs)
+        self.f_post_training()
 
     def train_sgd(self, *args, **kwargs):
         pass
