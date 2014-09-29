@@ -10,9 +10,12 @@ class Loss(object):
     """
     Base class for losses.
     """
-    def __init__(self):
+    def __init__(self, **kwargs):
+        """
+        kwargs is allowed for passing in extra information needed for initialization.
+        """
         self.loss_value = 0
-        self.weight = 1
+        self.weight = kwargs.get('weight', 1)
 
     def load_target(self, target, *args, **kwargs):
         """
@@ -118,24 +121,24 @@ class LossManager(object):
         return [self.get_loss_instance(loss_type) \
                 for loss_type in self.name_to_loss.keys()]
 
-    def get_loss_instance(self, loss_type):
-        return self.name_to_loss[loss_type]()
+    def get_loss_instance(self, loss_type, **kwargs):
+        return self.name_to_loss[loss_type](**kwargs)
 
-    def get_loss_instance_from_id(self, loss_id):
+    def get_loss_instance_from_id(self, loss_id, **kwargs):
         if loss_id == _LOSS_ID_NONE:
             return None
-        return self.id_to_loss[loss_id]()
+        return self.id_to_loss[loss_id](**kwargs)
 
 _loss_manager = LossManager()
 
 def register_loss(loss):
     _loss_manager.register_loss(loss)
 
-def get_loss_from_type_name(loss_type):
-    return _loss_manager.get_loss_instance(loss_type)
+def get_loss_from_type_name(loss_type, **kwargs):
+    return _loss_manager.get_loss_instance(loss_type, **kwargs)
 
-def get_loss_from_type_id(loss_id):
-    return _loss_manager.get_loss_instance_from_id(loss_id)
+def get_loss_from_type_id(loss_id, **kwargs):
+    return _loss_manager.get_loss_instance_from_id(loss_id, **kwargs)
 
 class DebugLoss(Loss):
     """

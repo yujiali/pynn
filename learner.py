@@ -94,6 +94,15 @@ class Learner(object):
         self.best_w = None
         self.init_w = self.net.get_param_vec()
 
+    def _process_options(self, kwargs):
+        """
+        Preprocess the keyword options before feeding into the optimization
+        function.
+
+        Changes will be made directly to kwargs.
+        """
+        pass
+
     def train_gradient_descent(self, **kwargs):
         """
         f_info will be overwritten here.
@@ -101,12 +110,16 @@ class Learner(object):
         self._prepare_for_training()
         self.load_train_target()
         kwargs['f_info'] = self.f_info
+        self._process_options(kwargs)
+        self.print_options(kwargs)
         opt.fmin_gradient_descent(self.f_and_fprime, self.init_w, **kwargs)
         self.f_post_training()
 
     def train_lbfgs(self, **kwargs):
         self._prepare_for_training()
         self.load_train_target()
+        self._process_options(kwargs)
+        self.print_options(kwargs)
         self.best_w, self.best_obj, _ = spopt.fmin_l_bfgs_b(self.f_and_fprime, self.init_w, **kwargs)
         self.f_post_training()
 
@@ -120,6 +133,11 @@ class Learner(object):
         self.net.set_param_from_vec(self.best_w)
         print '=============================='
         print 'Best ' + ('val' if self.use_validation else 'train') + ' obj %.4f' % self.best_obj
+
+    def print_options(self, kwargs):
+        for k, v in kwargs.iteritems():
+            print '%s=%s' % (str(k), str(v))
+        print ''
 
 class ClassificationLearner(Learner):
     """
