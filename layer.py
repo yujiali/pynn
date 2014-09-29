@@ -88,14 +88,16 @@ class Layer(object):
     One layer in a neural network.
     """
     def __init__(self, in_dim=1, out_dim=1, nonlin_type=None, dropout=0,
-            init_scale=1e-1, params=None, loss=None):
+            init_scale=1e-1, params=None, loss=None, loss_after_nonlin=False):
         if nonlin_type is None:
             nonlin_type = NONLIN_NAME_LINEAR
         nonlin = get_nonlin_from_type_name(nonlin_type)
-        self.build_layer(in_dim, out_dim, nonlin, dropout, init_scale, loss, params)
+        self.build_layer(in_dim, out_dim, nonlin, dropout=dropout, 
+                init_scale=init_scale, loss=loss, params=params,
+                loss_after_nonlin=loss_after_nonlin)
 
     def build_layer(self, in_dim, out_dim, nonlin, dropout=0, 
-            init_scale=1e-1, loss=None, params=None):
+            init_scale=1e-1, loss=None, params=None, loss_after_nonlin=False):
         self.nonlin = nonlin
         self.set_params(params if params is not None else \
                 LayerParams(in_dim, out_dim, init_scale, dropout))
@@ -103,14 +105,16 @@ class Layer(object):
         self.loss_value = 0
         self.noise_added = False
         self.loss_computed = False
+        self.loss_after_nonlin = loss_after_nonlin
 
     def set_params(self, params):
         self.params = params
         self.in_dim, self.out_dim = params.W.shape
         self._param_id = params._param_id
 
-    def set_loss(self, loss):
+    def set_loss(self, loss, loss_after_nonlin=False):
         self.loss = loss
+        self.loss_after_nonlin = loss_after_nonlin
 
     def forward_prop(self, X, add_noise=False, compute_loss=False):
         """
@@ -130,8 +134,12 @@ class Layer(object):
         self.output = self.nonlin.forward_prop(self.activation)
 
         if compute_loss and self.loss is not None:
-            self.loss_value, self.loss_grad = self.loss.compute_loss_and_grad(
-                    self.activation, compute_grad=True)
+            if self.loss_after_nonlin:
+                self.loss_value, self.loss_grad = self.loss.compute_loss_and_grad(
+                        self.output, compute_grad=True)
+            else:
+                self.loss_value, self.loss_grad = self.loss.compute_loss_and_grad(
+                        self.activation, compute_grad=True)
             self.loss_computed = True
         
         return self.output
@@ -143,12 +151,16 @@ class Layer(object):
         Note te loss gradients are added to the activation gradient, i.e. they 
         won't pass through the nonlinearity.
         """
-        if grad is None:
+        if grad is None and not self.loss_after_nonlin:
             d_act = gnp.zeros(self.output.shape)
-        else:
+        else:   # some gradient will pass through nonlinearity
+            if grad is None and self.loss_after_nonlin:
+                grad = self.loss_grad
+            elif self.loss_after_nonlin:
+                grad += self.loss_grad
             d_act = self.nonlin.backward_prop(self.activation, self.output) * grad 
 
-        if self.loss_computed:
+        if self.loss_computed and not self.loss_after_nonlin:
             d_act += self.loss_grad
 
         d_input = d_act.dot(self.params.W.T)
@@ -165,23 +177,26 @@ class Layer(object):
                 + (struct.pack('i', self.loss.get_id() \
                 if self.loss is not None else ls._LOSS_ID_NONE)) \
                 + (struct.pack('f', self.loss.weight \
-                if self.loss is not None else 0))
+                if self.loss is not None else 0)) \
+                + (struct.pack('i', 1 if self.loss_after_nonlin else 0))
 
     def load_from_stream(self, f):
-        in_dim, out_dim, _param_id, nonlin_id, loss_id, loss_weight = \
-                struct.unpack('iiiiif', f.read(6*4))
+        in_dim, out_dim, _param_id, nonlin_id, loss_id, loss_weight, loss_after = \
+                struct.unpack('iiiiifi', f.read(7*4))
         nonlin = get_nonlin_from_type_id(nonlin_id)
         loss = ls.get_loss_from_type_id(loss_id)
         if loss is not None:
             loss.set_weight(loss_weight)
 
         self.build_layer(in_dim, out_dim, nonlin, 
-                init_scale=const.DEFAULT_PARAM_INIT_SCALE, loss=loss)
+                init_scale=const.DEFAULT_PARAM_INIT_SCALE, loss=loss,
+                loss_after_nonlin=(loss_after==1))
         self._param_id = _param_id
 
     def __repr__(self):
         return '%s %d x %d, dropout %g' % (self.nonlin.get_name(), 
-                self.in_dim, self.out_dim, self.params.dropout)
+                self.in_dim, self.out_dim, self.params.dropout) \
+                        + (', loss after' if self.loss_after_nonlin else '')
 
 class Nonlinearity(object):
     """

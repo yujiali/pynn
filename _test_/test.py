@@ -180,7 +180,7 @@ def test_all_loss():
 
     return n_success, n_tests
 
-def test_layer(add_noise=False, no_loss=False):
+def test_layer(add_noise=False, no_loss=False, loss_after_nonlin=False):
     print 'Testing layer ' + ('with noise' if add_noise else 'without noise') \
             + ', ' + ('without loss' if no_loss else 'with loss')
     in_dim = 4
@@ -200,7 +200,7 @@ def test_layer(add_noise=False, no_loss=False):
     seed = 8
     dropout_rate = 0.5 if add_noise else 0
 
-    layer = ly.Layer(in_dim, out_dim, nonlin_type=ly.NONLIN_NAME_TANH, dropout=dropout_rate, loss=loss)
+    layer = ly.Layer(in_dim, out_dim, nonlin_type=ly.NONLIN_NAME_TANH, dropout=dropout_rate, loss=loss, loss_after_nonlin=loss_after_nonlin)
 
     w_0 = layer.params.get_param_vec()
 
@@ -242,8 +242,12 @@ def test_all_layer():
         n_success += 1
     if test_layer(add_noise=False, no_loss=True):
         n_success += 1
+    if test_layer(add_noise=False, loss_after_nonlin=True):
+        n_success += 1
+    if test_layer(add_noise=True, loss_after_nonlin=True):
+        n_success += 1
 
-    n_tests = 3
+    n_tests = 5
 
     print '=============='
     print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)
@@ -251,7 +255,7 @@ def test_all_layer():
 
     return n_success, n_tests
 
-def create_neuralnet(dropout_rate):
+def create_neuralnet(dropout_rate, loss_after_nonlin=False):
     in_dim = 3
     out_dim = 2
     h1_dim = 2
@@ -266,16 +270,16 @@ def create_neuralnet(dropout_rate):
     #net.add_layer(10, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
     net.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=dropout_rate)
 
-    net.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=1.1)
+    net.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=1.1, loss_after_nonlin=loss_after_nonlin)
     return net
 
-def test_neuralnet(add_noise=False):
+def test_neuralnet(add_noise=False, loss_after_nonlin=False):
     print 'Testing NeuralNet, ' + ('with noise' if add_noise else 'without noise')
     n_cases = 5
     seed = 8
     dropout_rate = 0.5 if add_noise else 0
 
-    net = create_neuralnet(dropout_rate)
+    net = create_neuralnet(dropout_rate, loss_after_nonlin=loss_after_nonlin)
    
     print net
 
@@ -310,9 +314,9 @@ def test_neuralnet(add_noise=False):
     gnp.seed_rand(int(time.time()))
     return test_passed
 
-def test_neuralnet_io():
+def test_neuralnet_io(loss_after_nonlin=False):
     def f_create():
-        return create_neuralnet(0.5)
+        return create_neuralnet(0.5, loss_after_nonlin=loss_after_nonlin)
     def f_create_void():
         return nn.NeuralNet(0,0)
     return test_net_io(f_create, f_create_void)
@@ -329,10 +333,16 @@ def test_all_neuralnet():
         n_success += 1
     if test_neuralnet(add_noise=True):
         n_success += 1
+    if test_neuralnet(add_noise=False, loss_after_nonlin=True):
+        n_success += 1
+    if test_neuralnet(add_noise=True, loss_after_nonlin=True):
+        n_success += 1
     if test_neuralnet_io():
         n_success += 1
+    if test_neuralnet_io(loss_after_nonlin=True):
+        n_success += 1
 
-    n_tests = 3
+    n_tests = 6
 
     print '=============='
     print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)

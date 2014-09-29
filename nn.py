@@ -189,13 +189,13 @@ class NeuralNet(BaseNeuralNet):
     def _update_param_size(self):
         self.param_size = sum([p.param_size for p in self.layer_params])
 
-    def set_loss(self, loss_type, loss_weight=1):
+    def set_loss(self, loss_type, loss_weight=1, loss_after_nonlin=False):
         """
         loss_type is the name of the loss.
         """
         self.loss = ls.get_loss_from_type_name(loss_type)
         self.loss.set_weight(loss_weight)
-        self.layers[-1].set_loss(self.loss)
+        self.layers[-1].set_loss(self.loss, loss_after_nonlin=loss_after_nonlin)
 
     def load_target(self, target, *args, **kwargs):
         if self.loss is not None and target is not None:
