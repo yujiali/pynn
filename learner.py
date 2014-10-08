@@ -44,6 +44,17 @@ class Learner(object):
         grad = self.net.get_grad_vec()
         return loss, grad
 
+    def get_f_and_fprime_func(self, weight_decay=0):
+        if weight_decay == 0:
+            return self.f_and_fprime
+        else:
+            def f_and_fprime(w):
+                loss, grad = self.f_and_fprime(w)
+                loss += 0.5 * weight_decay * (w**2).sum()
+                grad += weight_decay * w
+                return loss, grad
+            return f_and_fprime
+
     def f_info(self, w):
         """
         This is a reference implementatoin of this function, but can be 
@@ -118,9 +129,14 @@ class Learner(object):
     def train_lbfgs(self, **kwargs):
         self._prepare_for_training()
         self.load_train_target()
+        if 'weight_decay' in kwargs:
+            f_and_fprime = self.get_f_and_fprime_func(weight_decay=kwargs['weight_decay'])
+            del kwargs['weight_decay']
+        else:
+            f_and_fprime = self.f_and_fprime
         self._process_options(kwargs)
         self.print_options(kwargs)
-        self.best_w, self.best_obj, _ = spopt.fmin_l_bfgs_b(self.f_and_fprime, self.init_w, **kwargs)
+        self.best_w, self.best_obj, _ = spopt.fmin_l_bfgs_b(f_and_fprime, self.init_w, **kwargs)
         self.f_post_training()
 
     def train_sgd(self, *args, **kwargs):
