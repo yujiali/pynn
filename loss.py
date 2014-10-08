@@ -6,6 +6,8 @@ Yujia Li, 09/2014
 
 import gnumpy as gnp
 
+_SMALL_CONSTANT = 1e-20
+
 class Loss(object):
     """
     Base class for losses.
@@ -209,7 +211,7 @@ class CrossEntropy(Loss):
         y = gnp.exp(pred - pred.max(axis=1)[:,gnp.newaxis])
         y = y / y.sum(axis=1)[:,gnp.newaxis]
 
-        return -(self.target * gnp.log(y)).sum(), y - self.target
+        return -(self.target * gnp.log(y + _SMALL_CONSTANT)).sum(), y - self.target
 
     def get_name(self):
         return 'crossentropy'
