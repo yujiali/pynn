@@ -127,6 +127,23 @@ class BaseNeuralNet(object):
         with open(file_name, 'rb') as f:
             self.load_model_from_stream(f)
 
+    def get_type_code(self):
+        """
+        A type code used in model I/O to distinguish among different models.
+
+        This should return a 32-bit integer.
+        """
+        raise NotImplementedError()
+
+    def check_type_code(self, type_code):
+        """
+        Check if the type code matches the model itself.
+        """
+        if type_code == self.get_type_code():
+            return
+        else:
+            raise Exception('Type code mismatch!')
+
     def _update_param_size(self):
         """
         Update parameter size. After a call to this function the param_size
@@ -268,9 +285,13 @@ class NeuralNet(BaseNeuralNet):
         return ' | '.join([str(self.layers[i]) for i in range(len(self.layers))]) \
                 + ' | ' + (str(self.loss) if self.loss is not None else 'No Loss')
 
+    def get_type_code(self):
+        return 0
+
     def save_model_to_binary(self):
         # network structure first
-        s = struct.pack('i', len(self.layers))
+        s = struct.pack('i', self.get_type_code())
+        s += struct.pack('i', len(self.layers))
         s += ''.join([self.layers[i].save_to_binary() \
                 for i in range(len(self.layers))])
 
@@ -283,6 +304,9 @@ class NeuralNet(BaseNeuralNet):
     def load_model_from_stream(self, f):
         self.layers = []
         self.layer_params = []
+
+        type_code = struct.unpack('i', f.read(4))[0]
+        self.check_type_code(type_code)
 
         n_layers = struct.unpack('i', f.read(4))[0]
         for i in range(n_layers):
