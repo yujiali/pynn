@@ -144,6 +144,10 @@ def test_loss(loss, weight=1):
     elif loss.target_should_be_normalized():
         t = t - t.min(axis=1)[:,gnp.newaxis] + 1
         t /= t.sum(axis=1)[:,gnp.newaxis]
+    elif loss.target_should_be_hinge():
+        new_t = -np.ones(t.shape)
+        new_t[np.arange(t.shape[0]), t.argmax(axis=1)] = 1
+        t = gnp.garray(new_t)
 
     loss.load_target(t)
 

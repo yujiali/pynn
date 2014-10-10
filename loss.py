@@ -98,6 +98,15 @@ class Loss(object):
         """
         return False
 
+    def target_should_be_hinge(self):
+        """
+        Mainly for testing.
+
+        Property of the loss that for each row the target matrix should only
+        have one entry to be 1 and all others be -1.
+        """
+        return False
+
     def __repr__(self):
         return 'Loss <%s> w=%g' % (self.get_name(), self.weight)
 
@@ -223,6 +232,54 @@ class CrossEntropy(Loss):
         return 4
 
 register_loss(CrossEntropy())
+
+class OneVersusAllHingeLoss(Loss):
+    """
+    One versus all hinge loss sum_i sum_k max{0, 1-z_ik y_ik}
+    """
+    def load_target(self, target, *args, **kwargs):
+        self.target = target if isinstance(target, gnp.garray) else gnp.garray(target)
+
+    def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
+        M = 1 - pred * self.target
+        loss = ((M > 0) * M).sum()
+        grad = -((M > 0) * self.target) if compute_grad else gnp.zeros(pred.shape)
+        return loss, grad
+
+    def get_name(self):
+        return 'onevall'
+
+    def target_should_be_hinge(self):
+        return True
+
+    def get_id(self):
+        return 5
+
+register_loss(OneVersusAllHingeLoss())
+
+class L2HingeLoss(Loss):
+    """
+    One versus all L2 hinge loss sum_i sum_k max{0, 1-z_ik y_ik}^2
+    """
+    def load_target(self, target, *args, **kwargs):
+        self.target = target if isinstance(target, gnp.garray) else gnp.garray(target)
+
+    def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
+        M = 1 - pred * self.target
+        loss = (((M > 0) * M)**2).sum()
+        grad = -2*((M > 0)*self.target*M) if compute_grad else gnp.zeros(pred.shape)
+        return loss, grad
+
+    def get_name(self):
+        return 'l2hinge'
+
+    def target_should_be_hinge(self):
+        return True
+
+    def get_id(self):
+        return 6
+
+register_loss(L2HingeLoss())
 
 LOSS_LIST = _loss_manager.get_loss_list()
 

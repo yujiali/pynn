@@ -124,7 +124,7 @@ class Learner(object):
         self._process_options(kwargs)
         self.print_options(kwargs)
         opt.fmin_gradient_descent(self.f_and_fprime, self.init_w, **kwargs)
-        self.f_post_training()
+        return self.f_post_training()
 
     def train_lbfgs(self, **kwargs):
         self._prepare_for_training()
@@ -137,7 +137,7 @@ class Learner(object):
         self._process_options(kwargs)
         self.print_options(kwargs)
         self.best_w, self.best_obj, _ = spopt.fmin_l_bfgs_b(f_and_fprime, self.init_w, **kwargs)
-        self.f_post_training()
+        return self.f_post_training()
 
     def train_sgd(self, *args, **kwargs):
         pass
