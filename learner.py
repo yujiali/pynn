@@ -8,15 +8,44 @@ import color as co
 import numpy as np
 import scipy.optimize as spopt
 
+class ParamCache(object):
+    """
+    This class implements a parameter cache that keeps track of a small history
+    of past parameters.
+    """
+    def __init__(self, param_size, history_size):
+        self.cache = np.empty((param_size, history_size), dtype=np.float)
+        self.init_period = True
+        self.cache_ptr = 0
+        self.cache_size = history_size
+
+    def add_param(self, w):
+        self.cache[:, self.cache_ptr] = w
+        self.cache_ptr = (self.cache_ptr + 1) % self.cache_size
+        if self.init_period and self.cache_ptr == 0:
+            self.init_period = False
+
+    def get_average_param(self):
+        if self.init_period:
+            return self.cache[:, :self.cache_ptr].mean(axis=1)
+        else:
+            return self.cache.mean(axis=1)
+
 class Learner(object):
     """
     Base class for all learners.
     """
-    def __init__(self, net):
+    def __init__(self, net, param_cache_size=1):
         """
         net is a BaseNeuralNet instance.
         """
         self.net = net
+        self._init_param_cache(param_cache_size)
+
+    def _init_param_cache(self, param_cache_size):
+        self.param_cache_size = param_cache_size
+        if param_cache_size > 1:
+            self.param_cache = ParamCache(self.net.param_size, param_cache_size)
 
     def load_data(self, x_train, t_train, x_val=None, t_val=None):
         """
@@ -64,6 +93,7 @@ class Learner(object):
         val_loss = None
 
         w_0 = self.net.get_param_vec()
+
         self.net.set_noiseless_param_from_vec(w)
 
         self.net.forward_prop(self.x_train, add_noise=False, compute_loss=True)
@@ -94,6 +124,13 @@ class Learner(object):
         self.net.set_param_from_vec(w_0)
         return s
 
+    def _f_info_decorated(self, w):
+        if self.param_cache_size == 1:
+            return self.f_info(w)
+        else:
+            self.param_cache.add_param(w)
+            return self.f_info(self.param_cache.get_average_param())
+
     def f_exe(self, w):
         """
         Place holder for now.
@@ -120,7 +157,7 @@ class Learner(object):
         """
         self._prepare_for_training()
         self.load_train_target()
-        kwargs['f_info'] = self.f_info
+        kwargs['f_info'] = self._f_info_decorated
         self._process_options(kwargs)
         self.print_options(kwargs)
         opt.fmin_gradient_descent(self.f_and_fprime, self.init_w, **kwargs)

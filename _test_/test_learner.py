@@ -43,7 +43,7 @@ def test_neural_net_learner():
     print 'Network constructed: ' + str(net)
 
     # nn_learner = learner.Learner(net)
-    nn_learner = learner.ClassificationLearner(net)
+    nn_learner = learner.ClassificationLearner(net, param_cache_size=5)
     nn_learner.load_data(x_train, t_train, x_val, t_val)
     nn_learner.train_gradient_descent(learn_rate=1e-2, momentum=0.2, 
         weight_decay=0, learn_rate_schedule=None, momentum_schedule=None,
