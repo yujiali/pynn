@@ -161,7 +161,7 @@ class Learner(object):
         self._process_options(kwargs)
         self.print_options(kwargs)
         opt.fmin_gradient_descent(self.f_and_fprime, self.init_w, **kwargs)
-        return self.f_post_training()
+        return self._f_post_training_decorated()
 
     def train_lbfgs(self, **kwargs):
         self._prepare_for_training()
@@ -178,6 +178,13 @@ class Learner(object):
 
     def train_sgd(self, *args, **kwargs):
         pass
+
+    def _f_post_training_decorated(self):
+        if self.param_cache_size == 1:
+            return self.f_post_training()
+        else:
+            self.net.set_noiseless_param_from_vec(self.param_cache.get_average_param())
+            return self.f_post_training()
 
     def f_post_training(self):
         """
