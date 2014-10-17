@@ -131,7 +131,7 @@ class Learner(object):
             self.param_cache.add_param(w)
             return self.f_info(self.param_cache.get_average_param())
 
-    def f_exe(self, w):
+    def f_exe(self, i_iter, w):
         """
         Place holder for now.
         """
