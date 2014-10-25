@@ -62,7 +62,7 @@ class LayerParams(object):
         self.b[:] = v[self.W.size:].reshape(self.b.shape)
 
     def set_noiseless_param_from_vec(self, v):
-        self.set_param_from_vec(v * (1 - self.dropout))
+        self.set_param_from_vec(v / (1 - self.dropout))
 
     def save_to_binary(self):
         s = struct.pack('iiif', self._param_id, self.W.shape[0],
