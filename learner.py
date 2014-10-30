@@ -6,6 +6,7 @@ Yujia Li, 09/2014
 import pyopt.opt as opt
 import color as co
 import numpy as np
+import gnumpy as gnp
 import scipy.optimize as spopt
 
 class ParamCache(object):
@@ -30,6 +31,69 @@ class ParamCache(object):
             return self.cache[:, :self.cache_ptr].mean(axis=1)
         else:
             return self.cache.mean(axis=1)
+
+class MiniBatchGenerator(object):
+    """
+    Generate minibatches, useful for stochastic gradient descent learning.
+    """
+    def __init__(self, x, t=None, minibatch_size=100, random_order=True): 
+        """
+        Both x and t are arrays of length n_cases. Target t may be None.
+        """
+        self.x = x
+        self.t = t
+        self.minibatch_size = minibatch_size
+        self.n_cases = x.shape[0]
+        self.random_order = random_order
+        self.shuffle_data()
+
+    def __iter__(self):
+        return self
+
+    def shuffle_data(self):
+        if self.random_order:
+            self.idx = np.random.permutation(self.n_cases)
+        else:
+            self.idx = np.arange(self.n_cases)
+        self.i_ptr = 0
+
+    def next(self):
+        """
+        Get the next minibatch of data.
+
+        Return a tuple of (minibatch_x, minibatch_t) if t is not None,
+        otherwise return only minibatch_x.
+        """
+        minibatch_t = None
+        if self.i_ptr + self.minibatch_size <= self.n_cases:
+            minibatch_x = self.x[self.idx[self.i_ptr:self.i_ptr + self.minibatch_size]]
+            if self.t is not None:
+                minibatch_t = self.t[self.idx[self.i_ptr:self.i_ptr + self.minibatch_size]]
+            self.i_ptr += self.minibatch_size
+        else:
+            minibatch_x_part = self.x[self.idx[self.i_ptr:]].copy()
+            if self.t is not None:
+                minibatch_t_part = self.t[self.idx[self.i_ptr:]].copy()
+
+            other_part_size = self.minibatch_size - (self.n_cases - self.i_ptr)
+            self.shuffle_data()
+            if isinstance(self.x, gnp.garray):
+                minibatch_x = gnp.concatenate([minibatch_x_part, self.x[self.idx[:other_part_size]]], axis=0)
+            else:
+                minibatch_x = np.r_[minibatch_x_part, self.x[self.idx[:other_part_size]]]
+
+            if self.t is not None:
+                if isinstance(self.t, gnp.garray):
+                    minibatch_t = gnp.concatenate([minibatch_t_part, self.t[self.idx[:other_part_size]]], axis=0)
+                else:
+                    minibatch_t = np.r_[minibatch_t_part, self.t[self.idx[:other_part_size]]]
+
+            self.i_ptr = other_part_size
+
+        if self.t is not None:
+            return minibatch_x, minibatch_t
+        else:
+            return minibatch_x
 
 class Learner(object):
     """

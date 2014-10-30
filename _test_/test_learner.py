@@ -50,6 +50,34 @@ def test_neural_net_learner():
         learn_rate_drop_iters=0, decrease_type='linear', adagrad_start_iter=0,
         max_iters=500, iprint=10, verbose=True)
 
+def test_minibatch_generator():
+    import gnumpy as gnp
+    x = np.arange(30).reshape(10,3)
+    t = np.arange(10)
+
+    mbgen = learner.MiniBatchGenerator(x, t=t, minibatch_size=3, random_order=False)
+    for i in range(5):
+        print ''
+        print mbgen.next()
+
+    mbgen.shuffle_data()
+    for i in range(4):
+        print ''
+        print mbgen.next()
+
+    print '======================='
+    mbgen = learner.MiniBatchGenerator(
+            gnp.garray(x), t=t, minibatch_size=3, random_order=True)
+    for i in range(5):
+        print ''
+        print mbgen.next()
+
+    mbgen.shuffle_data()
+    for i in range(4):
+        print ''
+        print mbgen.next()
+
 if __name__ == '__main__':
     test_neural_net_learner()
+    test_minibatch_generator()
 
