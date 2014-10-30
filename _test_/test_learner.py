@@ -77,7 +77,26 @@ def test_minibatch_generator():
         print ''
         print mbgen.next()
 
+def test_neural_net_sgd_learner():
+    x_train, t_train, x_val, t_val = load_toy_data()
+    print 'Data loaded'
+
+    in_dim = x_train.shape[1]
+    out_dim = t_train.shape[1]
+
+    net = build_classification_net(in_dim, out_dim, dropout=0.5)
+    print 'Network constructed: ' + str(net)
+
+    # nn_learner = learner.Learner(net)
+    nn_learner = learner.ClassificationLearner(net, param_cache_size=5)
+    nn_learner.load_data(x_train, t_train, x_val, t_val)
+    nn_learner.train_sgd(minibatch_size=30, learn_rate=1e-2, momentum=0.2, 
+        weight_decay=0, learn_rate_schedule=None, momentum_schedule=None,
+        learn_rate_drop_iters=0, decrease_type='linear', adagrad_start_iter=0,
+        max_iters=500, iprint=10, verbose=True)
+
 if __name__ == '__main__':
+    test_neural_net_sgd_learner()
     test_neural_net_learner()
     test_minibatch_generator()
 

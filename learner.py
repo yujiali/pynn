@@ -137,6 +137,27 @@ class Learner(object):
         grad = self.net.get_grad_vec()
         return loss, grad
 
+    def create_minibatch_generator(self, minibatch_size):
+        """
+        Can be customized.
+        """
+        self.minibatch_generator = MiniBatchGenerator(
+                self.x_train, t=self.t_train, minibatch_size=minibatch_size,
+                random_order=True)
+
+    def f_and_fprime_minibatch(self, w):
+        x, t = self.minibatch_generator.next()
+
+        self.net.set_param_from_vec(w)
+        self.net.clear_gradient()
+        self.net.load_target(t)
+        self.net.forward_prop(x, add_noise=True, compute_loss=True)
+        loss = self.net.get_loss()
+        self.net.backward_prop()
+        grad = self.net.get_grad_vec()
+
+        return loss, grad
+
     def get_f_and_fprime_func(self, weight_decay=0):
         if weight_decay == 0:
             return self.f_and_fprime
@@ -159,7 +180,7 @@ class Learner(object):
         w_0 = self.net.get_param_vec()
 
         self.net.set_noiseless_param_from_vec(w)
-
+        self.net.load_target(self.t_train)
         self.net.forward_prop(self.x_train, add_noise=False, compute_loss=True)
         train_loss = self.net.get_loss() / self.x_train.shape[0]
 
@@ -227,6 +248,24 @@ class Learner(object):
         opt.fmin_gradient_descent(self.f_and_fprime, self.init_w, **kwargs)
         return self._f_post_training_decorated()
 
+    def train_sgd(self, **kwargs):
+        """
+        f_info will be overwritten here.
+        """
+        self._prepare_for_training()
+        if 'minibatch_size' in kwargs:
+            minibatch_size = kwargs['minibatch_size']
+            del kwargs['minibatch_size']
+        else:
+            minibatch_size = 100
+
+        self.create_minibatch_generator(minibatch_size)
+        kwargs['f_info'] = self._f_info_decorated
+        self._process_options(kwargs)
+        self.print_options(kwargs)
+        opt.fmin_gradient_descent(self.f_and_fprime_minibatch, self.init_w, **kwargs)
+        return self._f_post_training_decorated()
+
     def train_lbfgs(self, **kwargs):
         self._prepare_for_training()
         self.load_train_target()
@@ -239,9 +278,6 @@ class Learner(object):
         self.print_options(kwargs)
         self.best_w, self.best_obj, _ = spopt.fmin_l_bfgs_b(f_and_fprime, self.init_w, **kwargs)
         return self.f_post_training()
-
-    def train_sgd(self, *args, **kwargs):
-        pass
 
     def _f_post_training_decorated(self):
         if self.param_cache_size == 1:
@@ -276,7 +312,7 @@ class ClassificationLearner(Learner):
 
         w_0 = self.net.get_param_vec()
         self.net.set_noiseless_param_from_vec(w)
-
+        self.net.load_target(self.t_train)
         y = self.net.forward_prop(self.x_train, add_noise=False, compute_loss=True)
         train_loss = self.net.get_loss() / self.x_train.shape[0]
         train_acc = self._compute_accuracy(self.t_train, y.argmax(axis=1))
