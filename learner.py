@@ -222,6 +222,13 @@ class Learner(object):
         """
         pass
 
+    def _f_exe_decorated(self, i_iter, w):
+        if self.param_cache_size == 1:
+            return self.f_exe(i_iter, w)
+        else:
+            self.param_cache_size.add_param(w)
+            return self.f_exe(i_iter, self.param_cache.get_average_param())
+
     def _prepare_for_training(self):
         self.best_obj = None
         self.best_w = None
@@ -243,6 +250,7 @@ class Learner(object):
         self._prepare_for_training()
         self.load_train_target()
         kwargs['f_info'] = self._f_info_decorated
+        kwargs['f_exe'] = self._f_exe_decorated
         self._process_options(kwargs)
         self.print_options(kwargs)
         opt.fmin_gradient_descent(self.f_and_fprime, self.init_w, **kwargs)
@@ -261,6 +269,7 @@ class Learner(object):
 
         self.create_minibatch_generator(minibatch_size)
         kwargs['f_info'] = self._f_info_decorated
+        kwargs['f_exe'] = self._f_exe_decorated
         self._process_options(kwargs)
         self.print_options(kwargs)
         opt.fmin_gradient_descent(self.f_and_fprime_minibatch, self.init_w, **kwargs)
