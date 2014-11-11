@@ -8,6 +8,7 @@ import color as co
 import numpy as np
 import gnumpy as gnp
 import scipy.optimize as spopt
+import os
 
 class ParamCache(object):
     """
@@ -105,11 +106,17 @@ class Learner(object):
         """
         self.net = net
         self._init_param_cache(param_cache_size)
+        self.output_dir = '.'
 
     def _init_param_cache(self, param_cache_size):
         self.param_cache_size = param_cache_size
         if param_cache_size > 1:
             self.param_cache = ParamCache(self.net.param_size, param_cache_size)
+
+    def set_output_dir(self, output_dir):
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        self.output_dir = output_dir
 
     def load_data(self, x_train, t_train, x_val=None, t_val=None):
         """
@@ -249,8 +256,10 @@ class Learner(object):
         """
         self._prepare_for_training()
         self.load_train_target()
-        kwargs['f_info'] = self._f_info_decorated
-        kwargs['f_exe'] = self._f_exe_decorated
+        if 'f_info' not in kwargs:
+            kwargs['f_info'] = self._f_info_decorated
+        if 'f_exe' not in kwargs:
+            kwargs['f_exe'] = self._f_exe_decorated
         self._process_options(kwargs)
         self.print_options(kwargs)
         opt.fmin_gradient_descent(self.f_and_fprime, self.init_w, **kwargs)
@@ -268,8 +277,10 @@ class Learner(object):
             minibatch_size = 100
 
         self.create_minibatch_generator(minibatch_size)
-        kwargs['f_info'] = self._f_info_decorated
-        kwargs['f_exe'] = self._f_exe_decorated
+        if 'f_info' not in kwargs:
+            kwargs['f_info'] = self._f_info_decorated
+        if 'f_exe' not in kwargs:
+            kwargs['f_exe'] = self._f_exe_decorated
         self._process_options(kwargs)
         self.print_options(kwargs)
         opt.fmin_gradient_descent(self.f_and_fprime_minibatch, self.init_w, **kwargs)
