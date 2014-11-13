@@ -295,8 +295,8 @@ class Learner(object):
         else:
             f_and_fprime = self.f_and_fprime
         self._process_options(kwargs)
-        self.print_options(kwargs)
-        self.best_w, self.best_obj, _ = spopt.fmin_l_bfgs_b(f_and_fprime, self.init_w, **kwargs)
+        self.best_w, self.best_obj, d = spopt.fmin_l_bfgs_b(f_and_fprime, self.init_w, **kwargs)
+        self.best_grad = d['grad']
         return self.f_post_training()
 
     def _f_post_training_decorated(self):
