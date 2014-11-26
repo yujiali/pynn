@@ -107,6 +107,7 @@ class Learner(object):
         self.net = net
         self._init_param_cache(param_cache_size)
         self.output_dir = '.'
+        self.verbose = True
 
     def _init_param_cache(self, param_cache_size):
         self.param_cache_size = param_cache_size
@@ -250,6 +251,15 @@ class Learner(object):
         """
         pass
 
+    def _general_option_processing(self, kwargs):
+        """
+        Some general option processing that will be needed in all training.
+        """
+        if 'verbose' in kwargs:
+            self.verbose = kwargs['verbose']
+        else:
+            self.verbose = True
+
     def train_gradient_descent(self, **kwargs):
         """
         f_info will be overwritten here.
@@ -260,6 +270,7 @@ class Learner(object):
             kwargs['f_info'] = self._f_info_decorated
         if 'f_exe' not in kwargs:
             kwargs['f_exe'] = self._f_exe_decorated
+        self._general_option_processing(kwargs)
         self._process_options(kwargs)
         self.print_options(kwargs)
         opt.fmin_gradient_descent(self.f_and_fprime, self.init_w, **kwargs)
@@ -281,6 +292,7 @@ class Learner(object):
             kwargs['f_info'] = self._f_info_decorated
         if 'f_exe' not in kwargs:
             kwargs['f_exe'] = self._f_exe_decorated
+        self._general_option_processing(kwargs)
         self._process_options(kwargs)
         self.print_options(kwargs)
         opt.fmin_gradient_descent(self.f_and_fprime_minibatch, self.init_w, **kwargs)
@@ -294,6 +306,7 @@ class Learner(object):
             del kwargs['weight_decay']
         else:
             f_and_fprime = self.f_and_fprime
+        self._general_option_processing(kwargs)
         self._process_options(kwargs)
         self.best_w, self.best_obj, d = spopt.fmin_l_bfgs_b(f_and_fprime, self.init_w, **kwargs)
         self.best_grad = d['grad']
@@ -311,13 +324,15 @@ class Learner(object):
         Can be customized.
         """
         self.net.set_param_from_vec(self.best_w)
-        print '=============================='
-        print 'Best ' + ('val' if self.use_validation else 'train') + ' obj %.4f' % self.best_obj
+        if self.verbose:
+            print '=============================='
+            print 'Best ' + ('val' if self.use_validation else 'train') + ' obj %.4f' % self.best_obj
 
     def print_options(self, kwargs):
-        for k, v in kwargs.iteritems():
-            print '%s=%s' % (str(k), str(v))
-        print ''
+        if self.verbose:
+            for k, v in kwargs.iteritems():
+                print '%s=%s' % (str(k), str(v))
+            print ''
 
 class ClassificationLearner(Learner):
     """
