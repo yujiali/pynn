@@ -328,6 +328,9 @@ class Learner(object):
             print '=============================='
             print 'Best ' + ('val' if self.use_validation else 'train') + ' obj %.4f' % self.best_obj
 
+    def save_checkpoint(self, label):
+        self.net.save_model_to_file(self.output_dir + '/checkpoint_%s.pdata' % str(label))
+
     def print_options(self, kwargs):
         if self.verbose:
             for k, v in kwargs.iteritems():

@@ -88,7 +88,8 @@ class Layer(object):
     One layer in a neural network.
     """
     def __init__(self, in_dim=1, out_dim=1, nonlin_type=None, dropout=0,
-            init_scale=1e-1, params=None, loss=None, loss_after_nonlin=False):
+            sparsity=0, sparsity_weight=0, init_scale=1e-1, params=None,
+            loss=None, loss_after_nonlin=False):
         if nonlin_type is None:
             nonlin_type = NONLIN_NAME_LINEAR
         nonlin = get_nonlin_from_type_name(nonlin_type)
@@ -96,11 +97,13 @@ class Layer(object):
                 init_scale=init_scale, loss=loss, params=params,
                 loss_after_nonlin=loss_after_nonlin)
 
-    def build_layer(self, in_dim, out_dim, nonlin, dropout=0, 
+    def build_layer(self, in_dim, out_dim, nonlin, dropout=0, sparsity=0, sparsity_weight=0,
             init_scale=1e-1, loss=None, params=None, loss_after_nonlin=False):
         self.nonlin = nonlin
         self.set_params(params if params is not None else \
                 LayerParams(in_dim, out_dim, init_scale, dropout))
+        self.sparsity = sparsity
+        self.sparsity_weight = sparsity_weight
         self.loss = loss
         self.loss_value = 0
         self.noise_added = False
@@ -132,6 +135,8 @@ class Layer(object):
 
         self.activation = self.inputs.dot(self.params.W) + self.params.b
         self.output = self.nonlin.forward_prop(self.activation)
+
+        # TODO implement sparsity penalty
 
         if compute_loss and self.loss is not None:
             if self.loss_after_nonlin:

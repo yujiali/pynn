@@ -8,6 +8,15 @@ import gnumpy as gnp
 
 _SMALL_CONSTANT = 1e-20
 
+def convert_to_garray(x):
+    if isinstance(x, gnp.garray):
+        return x
+    else:
+        return gnp.garray(x)
+
+def safe_log(x):
+    return gnp.log(x + _SMALL_CONSTANT)
+
 class Loss(object):
     """
     Base class for losses.
@@ -186,10 +195,7 @@ class SquaredLoss(Loss):
     Squared loss (x - t)**2
     """
     def load_target(self, target, *args, **kwargs):
-        if isinstance(target, gnp.garray):
-            self.target = target
-        else:
-            self.target = gnp.garray(target)
+        self.target = convert_to_garray(target)
 
     def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
         diff = pred - self.target
@@ -211,10 +217,7 @@ class CrossEntropy(Loss):
     representation.
     """
     def load_target(self, target, *args, **kwargs):
-        if isinstance(target, gnp.garray):
-            self.target = target
-        else:
-            self.target = gnp.garray(target)
+        self.target = convert_to_garray(target)
 
     def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
         y = gnp.exp(pred - pred.max(axis=1)[:,gnp.newaxis])
@@ -232,6 +235,35 @@ class CrossEntropy(Loss):
         return 4
 
 register_loss(CrossEntropy())
+
+class BinaryCrossEntropy(Loss):
+    """
+    Cross entropy loss, where there are only two classes, or the output is 
+    constrained to be between 0 and 1. In this case the outputs can be
+    represented using a single number instead of a vector required for the 
+    multi-class case.
+
+    The loss = -sum_i [(1 - t_i) log(1 - y_i) + t_i log(y_i)]
+    
+    where t_i in [0,1] and y_i = sigmoid(x_i).
+    """
+    def load_target(self, target, *args, **kwargs):
+        self.target = convert_to_garray(target)
+
+    def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
+        y = gnp.logistic(pred)
+        return -((1 - self.target) * safe_log(1 - y) + self.target * safe_log(y)).sum(), y - self.target
+
+    def get_name(self):
+        return 'binary_crossentropy'
+
+    def target_should_be_normalized(self):
+        return True
+
+    def get_id(self):
+        return 5
+
+register_loss(BinaryCrossEntropy())
 
 class OneVersusAllHingeLoss(Loss):
     """
@@ -253,7 +285,7 @@ class OneVersusAllHingeLoss(Loss):
         return True
 
     def get_id(self):
-        return 5
+        return 6
 
 register_loss(OneVersusAllHingeLoss())
 
@@ -277,7 +309,7 @@ class L2HingeLoss(Loss):
         return True
 
     def get_id(self):
-        return 6
+        return 7
 
 register_loss(L2HingeLoss())
 
