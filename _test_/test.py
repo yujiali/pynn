@@ -184,12 +184,16 @@ def test_all_loss():
 
     return n_success, n_tests
 
-def test_layer(add_noise=False, no_loss=False, loss_after_nonlin=False):
+def test_layer(add_noise=False, no_loss=False, loss_after_nonlin=False,
+        sparsity_weight=0):
     print 'Testing layer ' + ('with noise' if add_noise else 'without noise') \
-            + ', ' + ('without loss' if no_loss else 'with loss')
+            + ', ' + ('without loss' if no_loss else 'with loss') \
+            + ', ' + ('without sparsity' if sparsity_weight == 0 else 'with sparsity')
     in_dim = 4
     out_dim = 3
     n_cases = 3
+
+    sparsity = 0.1
 
     x = gnp.randn(n_cases, in_dim)
     t = gnp.randn(n_cases, out_dim)
@@ -203,8 +207,16 @@ def test_layer(add_noise=False, no_loss=False, loss_after_nonlin=False):
 
     seed = 8
     dropout_rate = 0.5 if add_noise else 0
+    nonlin_type = ly.NONLIN_NAME_SIGMOID if sparsity_weight > 0 \
+            else ly.NONLIN_NAME_TANH
 
-    layer = ly.Layer(in_dim, out_dim, nonlin_type=ly.NONLIN_NAME_TANH, dropout=dropout_rate, loss=loss, loss_after_nonlin=loss_after_nonlin)
+    layer = ly.Layer(in_dim, out_dim, nonlin_type=nonlin_type,
+            dropout=dropout_rate, sparsity=sparsity, sparsity_weight=sparsity_weight,
+            loss=loss, loss_after_nonlin=loss_after_nonlin)
+
+    if sparsity_weight > 0:
+        # disable smoothing over minibatches
+        layer._sparsity_smoothing = 1.0
 
     w_0 = layer.params.get_param_vec()
 
@@ -222,7 +234,10 @@ def test_layer(add_noise=False, no_loss=False, loss_after_nonlin=False):
             gnp.seed_rand(seed)
         layer.params.set_param_from_vec(w)
         layer.forward_prop(x, compute_loss=True)
-        return layer.loss_value
+        if layer.sparsity_weight == 0:
+            return layer.loss_value
+        else:
+            return layer.loss_value + layer._sparsity_objective
 
     fdiff_grad = finite_difference_gradient(f, w_0)
 
@@ -250,8 +265,14 @@ def test_all_layer():
         n_success += 1
     if test_layer(add_noise=True, loss_after_nonlin=True):
         n_success += 1
+    if test_layer(no_loss=True, sparsity_weight=1.0):
+        n_success += 1
+    if test_layer(sparsity_weight=1.0):
+        n_success += 1
+    if test_layer(add_noise=True, sparsity_weight=1.0):
+        n_success += 1
 
-    n_tests = 5
+    n_tests = 8
 
     print '=============='
     print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)

@@ -94,6 +94,7 @@ class Layer(object):
             nonlin_type = NONLIN_NAME_LINEAR
         nonlin = get_nonlin_from_type_name(nonlin_type)
         self.build_layer(in_dim, out_dim, nonlin, dropout=dropout, 
+                sparsity=sparsity, sparsity_weight=sparsity_weight,
                 init_scale=init_scale, loss=loss, params=params,
                 loss_after_nonlin=loss_after_nonlin)
 
@@ -102,8 +103,14 @@ class Layer(object):
         self.nonlin = nonlin
         self.set_params(params if params is not None else \
                 LayerParams(in_dim, out_dim, init_scale, dropout))
+
         self.sparsity = sparsity
         self.sparsity_weight = sparsity_weight
+        if self.sparsity_weight > 0:
+            self._sparsity_current = gnp.ones(out_dim) * sparsity
+            self._sparsity_smoothing = 0.9
+            self._sparsity_objective = 0
+
         self.loss = loss
         self.loss_value = 0
         self.noise_added = False
@@ -136,7 +143,11 @@ class Layer(object):
         self.activation = self.inputs.dot(self.params.W) + self.params.b
         self.output = self.nonlin.forward_prop(self.activation)
 
-        # TODO implement sparsity penalty
+        if self.sparsity_weight > 0:
+            self._sparsity_current = self._sparsity_smoothing * self.output.mean(axis=0) \
+                    + (1 - self._sparsity_smoothing) * self._sparsity_current
+            self._sparsity_objective = (- self.sparsity * gnp.log(self._sparsity_current + 1e-20) \
+                    - (1 - self.sparsity) * gnp.log(1 - self._sparsity_current + 1e-20)).sum() * self.sparsity_weight
 
         if compute_loss and self.loss is not None:
             if self.loss_after_nonlin:
@@ -156,13 +167,23 @@ class Layer(object):
         Note te loss gradients are added to the activation gradient, i.e. they 
         won't pass through the nonlinearity.
         """
-        if grad is None and not self.loss_after_nonlin:
+        if grad is None and not self.loss_after_nonlin and self.sparsity_weight == 0:
             d_act = gnp.zeros(self.output.shape)
         else:   # some gradient will pass through nonlinearity
             if grad is None and self.loss_after_nonlin:
                 grad = self.loss_grad
             elif self.loss_after_nonlin:
                 grad += self.loss_grad
+
+            if self.sparsity_weight > 0:
+                sparsity_grad = self.sparsity_weight * self._sparsity_smoothing \
+                        / self.output.shape[0] * (self._sparsity_current - self.sparsity) \
+                        / (self._sparsity_current * (1 - self._sparsity_current))
+                if grad is None:
+                    grad = sparsity_grad
+                else:
+                    grad += sparsity_grad
+
             d_act = self.nonlin.backward_prop(self.activation, self.output) * grad 
 
         if self.loss_computed and not self.loss_after_nonlin:
