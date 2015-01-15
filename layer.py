@@ -204,17 +204,20 @@ class Layer(object):
                 if self.loss is not None else ls._LOSS_ID_NONE)) \
                 + (struct.pack('f', self.loss.weight \
                 if self.loss is not None else 0)) \
-                + (struct.pack('i', 1 if self.loss_after_nonlin else 0))
+                + (struct.pack('i', 1 if self.loss_after_nonlin else 0)) \
+                + struct.pack('f', self.sparsity) \
+                + struct.pack('f', self.sparsity_weight)
 
     def load_from_stream(self, f):
-        in_dim, out_dim, _param_id, nonlin_id, loss_id, loss_weight, loss_after = \
-                struct.unpack('iiiiifi', f.read(7*4))
+        in_dim, out_dim, _param_id, nonlin_id, loss_id, loss_weight, loss_after, \
+                sparsity, sparsity_weight = struct.unpack('iiiiififf', f.read(9*4))
         nonlin = get_nonlin_from_type_id(nonlin_id)
         loss = ls.get_loss_from_type_id(loss_id)
         if loss is not None:
             loss.set_weight(loss_weight)
 
-        self.build_layer(in_dim, out_dim, nonlin, 
+        self.build_layer(in_dim, out_dim, nonlin,
+                sparsity=sparsity, sparsity_weight=sparsity_weight,
                 init_scale=const.DEFAULT_PARAM_INIT_SCALE, loss=loss,
                 loss_after_nonlin=(loss_after==1))
         self._param_id = _param_id
@@ -222,7 +225,8 @@ class Layer(object):
     def __repr__(self):
         return '%s %d x %d, dropout %g' % (self.nonlin.get_name(), 
                 self.in_dim, self.out_dim, self.params.dropout) \
-                        + (', loss after' if self.loss_after_nonlin else '')
+                + (', loss after' if self.loss_after_nonlin else '') \
+                + (', sparsity %g, sparsity_weight %g' % (self.sparsity, self.sparsity_weight) if self.sparsity_weight > 0 else '')
 
 class Nonlinearity(object):
     """
