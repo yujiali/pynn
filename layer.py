@@ -213,6 +213,7 @@ class Layer(object):
                 sparsity, sparsity_weight = struct.unpack('iiiiififf', f.read(9*4))
         nonlin = get_nonlin_from_type_id(nonlin_id)
         loss = ls.get_loss_from_type_id(loss_id)
+
         if loss is not None:
             loss.set_weight(loss_weight)
 
@@ -227,6 +228,10 @@ class Layer(object):
                 self.in_dim, self.out_dim, self.params.dropout) \
                 + (', loss after' if self.loss_after_nonlin else '') \
                 + (', sparsity %g, sparsity_weight %g' % (self.sparsity, self.sparsity_weight) if self.sparsity_weight > 0 else '')
+
+    def get_status_info(self):
+        return '' if self.sparsity_weight == 0 else 'layer %dx%d sparsity=%g' % (
+                self.in_dim, self.out_dim, self._sparsity_current.mean())
 
 class Nonlinearity(object):
     """

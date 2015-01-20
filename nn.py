@@ -151,6 +151,14 @@ class BaseNeuralNet(object):
         """
         raise NotImplementedError()
 
+    def get_status_info(self):
+        """
+        Return a string that represents some internal states of the network,
+        can be used for debugging the training process or monitoring the state
+        of the network.
+        """
+        return ''
+
 class NeuralNet(BaseNeuralNet):
     """
     A simple one input one output layer neural net, loss is only (possibly) 
@@ -330,6 +338,9 @@ class NeuralNet(BaseNeuralNet):
         self.output_layer_added = False
         self._update_param_size()
 
+    def get_status_info(self):
+        return ', '.join([s for s in [layer.get_status_info() for layer in self.layers] if len(s) > 0])
+
 class CompositionalNeuralNet(BaseNeuralNet):
     """
     A base class for all meta neural nets that are formed by combining multiple
@@ -383,6 +394,9 @@ class CompositionalNeuralNet(BaseNeuralNet):
             net = NeuralNet(0, 0)
             net.load_model_from_stream(f)
             self.neural_nets.append(net)
+
+    def get_status_info(self):
+        return ', '.join([s for s in [net.get_status_info() for net in self.neural_nets] if len(s) > 0])
 
 class StackedNeuralNet(CompositionalNeuralNet):
     """
@@ -516,12 +530,17 @@ class AutoEncoder(CompositionalNeuralNet):
         pass
 
     def forward_prop(self, X, add_noise=False, compute_loss=False):
+        """
+        Equivalently this computes the reconstruction.
+        """
         # input is the target
         if compute_loss:
             self.decoder.load_target(X)
 
-        h = self.encoder.forward_prop(X, add_noise=add_noise, compute_loss=compute_loss)
-        self.decoder.forward_prop(h, add_noise=add_noise, compute_loss=compute_loss)
+        h = self.encoder.forward_prop(X, add_noise=add_noise,
+                compute_loss=compute_loss)
+        return self.decoder.forward_prop(h, add_noise=add_noise,
+                compute_loss=compute_loss)
 
     def encode(self, X):
         return self.encoder.forward_prop(X, add_noise=False, compute_loss=False)

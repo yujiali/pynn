@@ -215,6 +215,10 @@ class Learner(object):
                 s += '%.4f' % train_loss
 
         self.net.set_param_from_vec(w_0)
+        
+        net_status = self.net.get_status_info()
+        if len(net_status) > 0:
+            s += ', ' + net_status
         return s
 
     def _f_info_decorated(self, w):
