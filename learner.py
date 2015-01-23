@@ -177,6 +177,29 @@ class Learner(object):
                 return loss, grad
             return f_and_fprime
 
+    def evaluate_loss_large_set(self, x, t, batch_size=1000):
+        """
+        A function used to evaluate loss on a large set of data. A direct call
+        to forward_prop may blow up the memory, so this function does it in 
+        smaller batches.
+
+        This function will change the target loaded with the network. Return
+        the average loss across examples for this set.
+        """
+        n_cases = x.shape[0]
+        n_batches = (n_cases + batch_size - 1) / batch_size
+
+        total_loss = 0
+        for i_batch in xrange(n_batches):
+            i_start = i_batch * batch_size
+            i_end = i_start + batch_size if i_batch < n_batches - 1 else n_cases
+
+            self.net.load_target(t[i_start:i_end])
+            self.net.forward_prop(x[i_start:i_end], add_noise=False, compute_loss=True)
+            total_loss += self.net.get_loss()
+
+        return total_loss / n_cases
+
     def f_info(self, w):
         """
         This is a reference implementatoin of this function, but can be 
@@ -188,15 +211,16 @@ class Learner(object):
         w_0 = self.net.get_param_vec()
 
         self.net.set_noiseless_param_from_vec(w)
-        self.net.load_target(self.t_train)
-        self.net.forward_prop(self.x_train, add_noise=False, compute_loss=True)
-        train_loss = self.net.get_loss() / self.x_train.shape[0]
+        #self.net.load_target(self.t_train)
+        #self.net.forward_prop(self.x_train, add_noise=False, compute_loss=True)
+        #train_loss = self.net.get_loss() / self.x_train.shape[0]
+        train_loss = self.evaluate_loss_large_set(self.x_train, self.t_train)
 
         if self.use_validation:
-            self.net.load_target(self.t_val)
-            self.net.forward_prop(self.x_val, add_noise=False, compute_loss=True)
-            val_loss = self.net.get_loss() / self.x_val.shape[0]
-            self.net.load_target(self.t_train)
+            #self.net.load_target(self.t_val)
+            #self.net.forward_prop(self.x_val, add_noise=False, compute_loss=True)
+            #val_loss = self.net.get_loss() / self.x_val.shape[0]
+            val_loss = self.evaluate_loss_large_set(self.x_val, self.t_val)
 
             s = 'train loss %.4f, val loss ' % train_loss
             if self.best_obj is None or val_loss < self.best_obj:
@@ -214,6 +238,7 @@ class Learner(object):
             else:
                 s += '%.4f' % train_loss
 
+        self.net.load_target(self.t_train)
         self.net.set_param_from_vec(w_0)
         
         net_status = self.net.get_status_info()
