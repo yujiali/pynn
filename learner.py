@@ -143,7 +143,7 @@ class Learner(object):
         loss = self.net.get_loss()
         self.net.backward_prop()
         grad = self.net.get_grad_vec()
-        return loss, grad
+        return loss / self.x_train.shape[0], grad / self.x_train.shape[0]
 
     def create_minibatch_generator(self, minibatch_size):
         """
@@ -164,7 +164,7 @@ class Learner(object):
         self.net.backward_prop()
         grad = self.net.get_grad_vec()
 
-        return loss, grad
+        return loss / x.shape[0], grad / x.shape[0]
 
     def get_f_and_fprime_func(self, weight_decay=0):
         if weight_decay == 0:

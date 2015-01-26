@@ -45,7 +45,7 @@ def test_neural_net_learner():
     # nn_learner = learner.Learner(net)
     nn_learner = learner.ClassificationLearner(net, param_cache_size=5)
     nn_learner.load_data(x_train, t_train, x_val, t_val)
-    nn_learner.train_gradient_descent(learn_rate=1e-2, momentum=0.2, 
+    nn_learner.train_gradient_descent(learn_rate=1e-1, momentum=0.5, 
         weight_decay=0, learn_rate_schedule=None, momentum_schedule=None,
         learn_rate_drop_iters=0, decrease_type='linear', adagrad_start_iter=0,
         max_iters=500, iprint=10, verbose=True)
@@ -90,7 +90,7 @@ def test_neural_net_sgd_learner():
     # nn_learner = learner.Learner(net)
     nn_learner = learner.ClassificationLearner(net, param_cache_size=5)
     nn_learner.load_data(x_train, t_train, x_val, t_val)
-    nn_learner.train_sgd(minibatch_size=30, learn_rate=1e-2, momentum=0.2, 
+    nn_learner.train_sgd(minibatch_size=30, learn_rate=1e-1, momentum=0.5, 
         weight_decay=0, learn_rate_schedule=None, momentum_schedule=None,
         learn_rate_drop_iters=0, decrease_type='linear', adagrad_start_iter=0,
         max_iters=500, iprint=10, verbose=True)
