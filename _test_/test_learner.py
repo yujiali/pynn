@@ -95,8 +95,38 @@ def test_neural_net_sgd_learner():
         learn_rate_drop_iters=0, decrease_type='linear', adagrad_start_iter=0,
         max_iters=500, iprint=10, verbose=True)
 
+def test_autoencoder_pretraining():
+    x_train, t_train, x_val, t_val = load_toy_data()
+
+    in_dim = x_train.shape[1]
+    h_dim = 5
+
+    enc = nn.NeuralNet(in_dim, h_dim)
+    enc.add_layer(30, nonlin_type=ly.NONLIN_NAME_SIGMOID)
+    enc.add_layer(20, nonlin_type=ly.NONLIN_NAME_TANH)
+    enc.add_layer(10, nonlin_type=ly.NONLIN_NAME_RELU)
+    enc.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR)
+
+    dec = nn.NeuralNet(h_dim, in_dim)
+    dec.add_layer(10, nonlin_type=ly.NONLIN_NAME_RELU)
+    dec.add_layer(20, nonlin_type=ly.NONLIN_NAME_TANH)
+    dec.add_layer(30, nonlin_type=ly.NONLIN_NAME_SIGMOID)
+    dec.add_layer(0, nonlin_type=ly.NONLIN_NAME_SIGMOID)
+
+    ae = nn.AutoEncoder(enc, dec)
+
+    print ''
+    print ae
+    print ''
+
+    pretrainer = learner.AutoEncoderPretrainer(ae)
+    pretrainer.load_data(x_train)
+    pretrainer.pretrain_network(learn_rate=1e-1, momentum=0.5, weight_decay=0, 
+            minibatch_size=10, max_grad_norm=10, max_iters=1000, iprint=50)
+
 if __name__ == '__main__':
-    test_neural_net_sgd_learner()
-    test_neural_net_learner()
-    test_minibatch_generator()
+    #test_neural_net_sgd_learner()
+    #test_neural_net_learner()
+    #test_minibatch_generator()
+    test_autoencoder_pretraining()
 

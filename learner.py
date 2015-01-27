@@ -8,6 +8,9 @@ import color as co
 import numpy as np
 import gnumpy as gnp
 import scipy.optimize as spopt
+import nn
+import layer as ly
+import loss as ls
 import os
 
 class ParamCache(object):
@@ -410,5 +413,102 @@ class ClassificationLearner(Learner):
         self.net.set_param_from_vec(w_0)
         return s
 
+class AutoEncoderPretrainer(object):
+    """
+    Pretrain a multi-layer autoencoder network.
 
+    The autoencoder to be pretrained is required encoder and decoder with 
+    exactly reversed architectures.
+    """
+    def __init__(self, ae):
+        self.ae = ae
+        if not self._verify_ae(ae):
+            raise Exception('AutoEncoder should have exactly reversed encoder'\
+                    + ' and decoder!')
+
+    def _verify_ae(self, ae):
+        """
+        Verify if the autoencoder satisfy the requirements - encoder and
+        decoder have exactly reversed architectures.
+        """
+        enc = ae.encoder
+        dec = ae.decoder
+
+        if len(enc.layers) != len(dec.layers):
+            return False
+
+        n_layers = len(enc.layers)
+
+        for i in range(n_layers):
+            enc_layer = enc.layers[i]
+            dec_layer = dec.layers[n_layers-1-i]
+
+            if enc_layer.in_dim != dec_layer.out_dim or \
+                    enc_layer.out_dim != dec_layer.in_dim:
+                return False
+
+            if i < n_layers - 1 and enc.layers[i].nonlin.get_name() \
+                    != dec.layers[n_layers-i-2].nonlin.get_name():
+                return False
+
+        return True
+
+    def load_data(self, x):
+        self.x = x
+
+    def pretrain_layer(self, layer_idx, *args, **kwargs):
+        """
+        Pretrain a specific layer, treat the layers before it as already
+        trained.
+        """
+        enc = self.ae.encoder
+        dec = self.ae.decoder
+
+        if layer_idx == 0:
+            x = self.x
+        else:
+            base_enc = nn.NeuralNet(enc.in_dim, enc.layers[layer_idx].in_dim)
+            for i in range(layer_idx):
+                base_enc.add_layer(enc.layers[i].out_dim, 
+                        nonlin_type=enc.layers[i].nonlin.get_name())
+                base_enc.layers[i].params.set_param_from_vec(
+                        enc.layers[i].params.get_param_vec())
+            x = base_enc.forward_prop(self.x, add_noise=False, compute_loss=False)
+
+        enc_layer = enc.layers[layer_idx]
+        dec_layer = dec.layers[len(dec.layers)-1-layer_idx]
+
+        single_layer_enc = nn.NeuralNet(enc_layer.in_dim, enc_layer.out_dim)
+        single_layer_enc.add_layer(0, nonlin_type=enc_layer.nonlin.get_name())
+
+        single_layer_dec = nn.NeuralNet(dec_layer.in_dim, dec_layer.out_dim)
+        single_layer_dec.add_layer(0, nonlin_type=dec_layer.nonlin.get_name())
+
+        if dec_layer.nonlin.get_name() == ly.NONLIN_NAME_SIGMOID:
+            single_layer_dec.set_loss(ls.LOSS_NAME_BINARY_CROSSENTROPY, loss_weight=1)
+        else:
+            single_layer_dec.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=1)
+
+        single_layer_ae = nn.AutoEncoder(single_layer_enc, single_layer_dec)
+
+        print ''
+        print 'Pretraining layer %d' % layer_idx
+        print single_layer_ae
+        print ''
+
+        print 'Data: %dx%d' % x.shape
+        print ''
+
+        ae_learner = Learner(single_layer_ae)
+        ae_learner.load_data(x, x)
+        ae_learner.train_sgd(*args, **kwargs)
+
+        enc_layer.params.set_param_from_vec(
+                single_layer_ae.encoder.layers[0].params.get_param_vec())
+        dec_layer.params.set_param_from_vec(
+                single_layer_ae.decoder.layers[0].params.get_param_vec())
+
+    def pretrain_network(self, *args, **kwargs):
+        for layer_idx in range(len(self.ae.encoder.layers)):
+            self.pretrain_layer(layer_idx, *args, **kwargs)
 
