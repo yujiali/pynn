@@ -75,9 +75,14 @@ class MiniBatchGenerator(object):
                 minibatch_t = self.t[self.idx[self.i_ptr:self.i_ptr + self.minibatch_size]]
             self.i_ptr += self.minibatch_size
         else:
-            minibatch_x_part = self.x[self.idx[self.i_ptr:]].copy()
-            if self.t is not None:
-                minibatch_t_part = self.t[self.idx[self.i_ptr:]].copy()
+            if self.i_ptr >= self.n_cases:  # empty part
+                minibatch_x_part = self.x[:0].copy()
+                if self.t is not None:
+                    minibatch_t_part = self.t[:0].copy()
+            else:
+                minibatch_x_part = self.x[self.idx[self.i_ptr:]].copy()
+                if self.t is not None:
+                    minibatch_t_part = self.t[self.idx[self.i_ptr:]].copy()
 
             other_part_size = self.minibatch_size - (self.n_cases - self.i_ptr)
             self.shuffle_data()
@@ -498,6 +503,9 @@ class AutoEncoderPretrainer(object):
 
         print 'Data: %dx%d' % x.shape
         print ''
+
+        #import ipdb
+        #ipdb.set_trace()
 
         ae_learner = Learner(single_layer_ae)
         ae_learner.load_data(x, x)
