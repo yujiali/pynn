@@ -75,7 +75,7 @@ class MiniBatchGenerator(object):
                 minibatch_t = self.t[self.idx[self.i_ptr:self.i_ptr + self.minibatch_size]]
             self.i_ptr += self.minibatch_size
         else:
-            if self.i_ptr >= self.n_cases:  # empty part
+            if self.i_ptr >= self.n_cases:  # empty part, needed for garray handling
                 minibatch_x_part = self.x[:0].copy()
                 if self.t is not None:
                     minibatch_t_part = self.t[:0].copy()
@@ -484,10 +484,14 @@ class AutoEncoderPretrainer(object):
         dec_layer = dec.layers[len(dec.layers)-1-layer_idx]
 
         single_layer_enc = nn.NeuralNet(enc_layer.in_dim, enc_layer.out_dim)
-        single_layer_enc.add_layer(0, nonlin_type=enc_layer.nonlin.get_name())
+        single_layer_enc.add_layer(0, nonlin_type=enc_layer.nonlin.get_name(),
+                dropout=enc_layer.params.dropout, sparsity=enc_layer.sparsity, 
+                sparsity_weight=enc_layer.sparsity_weight)
 
         single_layer_dec = nn.NeuralNet(dec_layer.in_dim, dec_layer.out_dim)
-        single_layer_dec.add_layer(0, nonlin_type=dec_layer.nonlin.get_name())
+        single_layer_dec.add_layer(0, nonlin_type=dec_layer.nonlin.get_name(),
+                dropout=dec_layer.params.dropout, sparsity=dec_layer.sparsity,
+                sparsity_weight=dec_layer.sparsity_weight)
 
         if dec_layer.nonlin.get_name() == ly.NONLIN_NAME_SIGMOID:
             single_layer_dec.set_loss(ls.LOSS_NAME_BINARY_CROSSENTROPY, loss_weight=1)
@@ -497,26 +501,34 @@ class AutoEncoderPretrainer(object):
         single_layer_ae = nn.AutoEncoder(single_layer_enc, single_layer_dec)
 
         print ''
+        print '****************************************'
         print 'Pretraining layer %d' % layer_idx
+        print '****************************************'
         print single_layer_ae
         print ''
 
         print 'Data: %dx%d' % x.shape
         print ''
 
-        #import ipdb
-        #ipdb.set_trace()
-
         ae_learner = Learner(single_layer_ae)
         ae_learner.load_data(x, x)
         ae_learner.train_sgd(*args, **kwargs)
 
-        enc_layer.params.set_param_from_vec(
+        # note that after training the parameters are all noise-less parameters,
+        # this should be handled properly
+
+        enc_layer.params.set_noiseless_param_from_vec(
                 single_layer_ae.encoder.layers[0].params.get_param_vec())
-        dec_layer.params.set_param_from_vec(
+        dec_layer.params.set_noiseless_param_from_vec(
                 single_layer_ae.decoder.layers[0].params.get_param_vec())
 
     def pretrain_network(self, *args, **kwargs):
         for layer_idx in range(len(self.ae.encoder.layers)):
             self.pretrain_layer(layer_idx, *args, **kwargs)
+
+        print ''
+        print '======================================='
+        print 'Pretraining finished.'
+        print '======================================='
+        print ''
 
