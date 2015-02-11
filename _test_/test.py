@@ -107,6 +107,20 @@ def test_nonlin(nonlin):
     print ''
     return test_passed
 
+def test_nonlin_invert(nonlin):
+    print 'Testing inverting nonlinearity <%s>' % nonlin.get_name()
+
+    sx, sy = 3, 4
+
+    x = gnp.rand(sx, sy)
+    y = nonlin.forward_prop(x)
+    xx = nonlin.invert_output(y)
+
+    test_passed = test_vec_pair(x.asarray().ravel(), '%15s' % 'Input',
+            xx.asarray().ravel(), '%15s' % 'Inferred Input')
+    print ''
+    return test_passed
+
 def test_all_nonlin():
     print ''
     print '=========================='
@@ -114,12 +128,15 @@ def test_all_nonlin():
     print '=========================='
     print ''
 
-    n_tests = len(ly.NONLIN_LIST)
+    n_tests = 0
     n_success = 0
 
     for nonlin in ly.NONLIN_LIST:
         if test_nonlin(nonlin):
             n_success += 1
+        if test_nonlin_invert(nonlin):
+            n_success += 1
+        n_tests += 2
 
     print '=============='
     print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)

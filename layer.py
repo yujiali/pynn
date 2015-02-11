@@ -257,6 +257,25 @@ class Nonlinearity(object):
         """
         raise NotImplementedError()
 
+    def invert_output(self, z):
+        """
+        z: computed output from forward_prop
+
+        Return a matrix same size as z, which is the inferred input that could
+        have been used as the input to forward_prop to get z.
+
+        Returns z by default if this function is not implemented by subclasses.
+        """
+        return z
+
+    def output_range(self):
+        """
+        Return a tuple (min, max) of possible outputs.  If there's no lower
+        bound on the min, then min=None, and if no upper bound on max then 
+        max=None.
+        """
+        return None, None
+
     def get_name(self):
         raise NotImplementedError()
 
@@ -309,6 +328,12 @@ class LinearNonlin(Nonlinearity):
         return gnp.ones(x.shape)
         # return gnp.garray(1)
 
+    def invert_output(self, z):
+        return z
+
+    def output_range(self):
+        return None, None
+
     def get_name(self):
         return 'linear'
 
@@ -323,6 +348,12 @@ class SigmoidNonlin(Nonlinearity):
 
     def backward_prop(self, x, z):
         return z * (1 - z)
+
+    def invert_output(self, z):
+        return gnp.log(z / (1 - z))
+
+    def output_range(self):
+        return 0, 1
 
     def get_name(self):
         return 'sigmoid'
@@ -339,6 +370,12 @@ class TanhNonlin(Nonlinearity):
     def backward_prop(self, x, z):
         return 1 - z**2
 
+    def invert_output(self, z):
+        return 0.5 * gnp.log((1+z) / (1-z))
+
+    def output_range(self):
+        return -1, 1
+
     def get_name(self):
         return 'tanh'
 
@@ -353,6 +390,9 @@ class ReluNonlin(Nonlinearity):
 
     def backward_prop(self, x, z):
         return x > 0
+
+    def output_range(self):
+        return 0, None
 
     def get_name(self):
         return 'relu'
