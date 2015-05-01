@@ -76,9 +76,11 @@ class MiniBatchGenerator(object):
             self.i_ptr += self.minibatch_size
         else:
             if self.i_ptr >= self.n_cases:  # empty part, needed for garray handling
-                minibatch_x_part = self.x[:0].copy()
+                # minibatch_x_part = self.x[:0].copy()
+                minibatch_x_part = None
                 if self.t is not None:
-                    minibatch_t_part = self.t[:0].copy()
+                    # minibatch_t_part = self.t[:0].copy()
+                    minibatch_t_part = None
             else:
                 minibatch_x_part = self.x[self.idx[self.i_ptr:]].copy()
                 if self.t is not None:
@@ -86,16 +88,22 @@ class MiniBatchGenerator(object):
 
             other_part_size = self.minibatch_size - (self.n_cases - self.i_ptr)
             self.shuffle_data()
-            if isinstance(self.x, gnp.garray):
-                minibatch_x = gnp.concatenate([minibatch_x_part, self.x[self.idx[:other_part_size]]], axis=0)
+            if minibatch_x_part is not None:
+                if isinstance(self.x, gnp.garray):
+                    minibatch_x = gnp.concatenate([minibatch_x_part, self.x[self.idx[:other_part_size]]], axis=0)
+                else:
+                    minibatch_x = np.r_[minibatch_x_part, self.x[self.idx[:other_part_size]]]
             else:
-                minibatch_x = np.r_[minibatch_x_part, self.x[self.idx[:other_part_size]]]
+                minibatch_x = self.x[self.idx[:other_part_size]]
 
             if self.t is not None:
-                if isinstance(self.t, gnp.garray):
-                    minibatch_t = gnp.concatenate([minibatch_t_part, self.t[self.idx[:other_part_size]]], axis=0)
+                if minibatch_t_part is not None:
+                    if isinstance(self.t, gnp.garray):
+                        minibatch_t = gnp.concatenate([minibatch_t_part, self.t[self.idx[:other_part_size]]], axis=0)
+                    else:
+                        minibatch_t = np.r_[minibatch_t_part, self.t[self.idx[:other_part_size]]]
                 else:
-                    minibatch_t = np.r_[minibatch_t_part, self.t[self.idx[:other_part_size]]]
+                    minibatch_t = self.t[self.idx[:other_part_size]]
 
             self.i_ptr = other_part_size
 
@@ -317,6 +325,7 @@ class Learner(object):
         """
         f_info will be overwritten here.
         """
+        self.print_options(kwargs)
         self._prepare_for_training()
         if 'minibatch_size' in kwargs:
             minibatch_size = kwargs['minibatch_size']
@@ -331,7 +340,6 @@ class Learner(object):
             kwargs['f_exe'] = self._f_exe_decorated
         self._general_option_processing(kwargs)
         self._process_options(kwargs)
-        self.print_options(kwargs)
         opt.fmin_gradient_descent(self.f_and_fprime_minibatch, self.init_w, **kwargs)
         return self._f_post_training_decorated()
 

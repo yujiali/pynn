@@ -17,13 +17,13 @@ class LayerParams(object):
     _param_count = 0
 
     def __init__(self, in_dim=1, out_dim=1, init_scale=1e-1, dropout=0,
-            in_stream=None):
+            in_stream=None, init_bias=0):
         if in_stream is not None:
             self.load_from_stream(in_stream)
             return
 
         self.W = gnp.randn(in_dim, out_dim) * init_scale
-        self.b = gnp.zeros(out_dim)
+        self.b = gnp.ones(out_dim) * init_bias
 
         self.W_grad = self.W * 0
         self.b_grad = self.b * 0
@@ -89,7 +89,7 @@ class Layer(object):
     """
     def __init__(self, in_dim=1, out_dim=1, nonlin_type=None, dropout=0,
             sparsity=0, sparsity_weight=0, init_scale=1e-1, params=None,
-            loss=None, loss_after_nonlin=False):
+            loss=None, loss_after_nonlin=False, init_bias=0):
         if nonlin_type is None:
             nonlin_type = NONLIN_NAME_LINEAR
         nonlin = get_nonlin_from_type_name(nonlin_type)
@@ -99,10 +99,10 @@ class Layer(object):
                 loss_after_nonlin=loss_after_nonlin)
 
     def build_layer(self, in_dim, out_dim, nonlin, dropout=0, sparsity=0, sparsity_weight=0,
-            init_scale=1e-1, loss=None, params=None, loss_after_nonlin=False):
+            init_scale=1e-1, loss=None, params=None, loss_after_nonlin=False, init_bias=0):
         self.nonlin = nonlin
         self.set_params(params if params is not None else \
-                LayerParams(in_dim, out_dim, init_scale, dropout))
+                LayerParams(in_dim, out_dim, init_scale, dropout, init_bias=init_bias))
 
         self.sparsity = sparsity
         self.sparsity_weight = sparsity_weight
