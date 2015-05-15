@@ -83,6 +83,31 @@ class LayerParams(object):
 
         self.param_size = self.W.size + self.b.size
 
+class BatchNormalizationLayerParams(LayerParams):
+    """
+    Parameters for batch normalization, gamma and beta.
+    """
+    def __init__(self, layer_dim=None):
+        if layer_dim is None:
+            return
+
+        self.gamma = gnp.ones(layer_dim)
+        self.beta = gnp.zeros(layer_dim)
+
+        self.gamma_grad = gnp.zeros(layer_dim)
+        self.beta_grad = gnp.zeros(layer_dim)
+
+        self.param_size = self.gamma.size + self.beta.size
+        
+        self._param_id = LayerParams._param_count
+        LayerParams._param_count += 1
+
+    def save_to_binary(self):
+        pass
+
+    def load_from_stream(self, f):
+        pass
+
 class Layer(object):
     """
     One layer in a neural network.
