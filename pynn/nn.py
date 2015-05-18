@@ -175,7 +175,7 @@ class NeuralNet(BaseNeuralNet):
         self.output_layer_added = False
 
     def add_layer(self, out_dim=0, nonlin_type=None, dropout=0, sparsity=0, 
-            sparsity_weight=0, init_scale=1e-1, params=None, init_bias=0):
+            sparsity_weight=0, init_scale=1e-1, params=None, init_bias=0, use_batch_normalization=False):
         """
         By default, nonlinearity is linear.
 
@@ -202,10 +202,13 @@ class NeuralNet(BaseNeuralNet):
             self.output_layer_added = True
 
         self.layers.append(ly.Layer(in_dim, out_dim, nonlin_type, dropout,
-            sparsity, sparsity_weight, init_scale, params, init_bias=init_bias))
+            sparsity, sparsity_weight, init_scale, params, init_bias=init_bias,
+            use_batch_normalization=use_batch_normalization))
 
         if params is None:
             self.layer_params.append(self.layers[-1].params)
+        if use_batch_normalization:
+            self.layer_params.append(self.layers[-1].bn_layer.params)
 
         self._update_param_size()
 
@@ -324,12 +327,15 @@ class NeuralNet(BaseNeuralNet):
 
         n_params = struct.unpack('i', f.read(4))[0]
         for i in range(n_params):
-            p = ly.LayerParams(in_stream=f)
+            # p = ly.LayerParams(in_stream=f)
+            p = ly.LayerParams.load_from_stream(f)
             self.layer_params.append(p)
 
             for layer in self.layers:
                 if layer._param_id == p._param_id:
                     layer.set_params(p)
+                elif layer.use_batch_normalization and layer.bn_layer._param_id == p._param_id:
+                    layer.bn_layer.set_params(p)
 
         self.in_dim = self.layers[0].in_dim
         self.out_dim = self.layers[-1].out_dim

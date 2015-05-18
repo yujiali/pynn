@@ -15,6 +15,7 @@ import pynn.nn as nn
 import time
 
 _GRAD_CHECK_EPS = 1e-6
+_BN_GRAD_CHECK_EPS = 1e-5
 _FDIFF_EPS = 1e-8
 
 _TEMP_FILE_NAME = '_temp_.pdata'
@@ -26,15 +27,16 @@ def vec_str(v):
     s += ']'
     return s
 
-def test_vec_pair(v1, msg1, v2, msg2):
+def test_vec_pair(v1, msg1, v2, msg2, eps=_GRAD_CHECK_EPS):
     print msg1 + ' : ' + vec_str(v1)
     print msg2 + ' : ' + vec_str(v2)
     n_space = len(msg2) - len('diff')
     print ' ' * n_space + 'diff' + ' : ' + vec_str(v1 - v2)
-    err = np.sqrt(((v1 - v2)**2).sum())
+    # err = np.sqrt(((v1 - v2)**2).sum())
+    err = np.max(np.abs(v1 - v2))
     print 'err : %.8f' % err
 
-    success = err < _GRAD_CHECK_EPS
+    success = err < eps
     print '** SUCCESS **' if success else '** FAIL **'
 
     return success
@@ -202,10 +204,11 @@ def test_all_loss():
     return n_success, n_tests
 
 def test_layer(add_noise=False, no_loss=False, loss_after_nonlin=False,
-        sparsity_weight=0):
+        sparsity_weight=0, use_batch_normalization=False):
     print 'Testing layer ' + ('with noise' if add_noise else 'without noise') \
             + ', ' + ('without loss' if no_loss else 'with loss') \
-            + ', ' + ('without sparsity' if sparsity_weight == 0 else 'with sparsity')
+            + ', ' + ('without sparsity' if sparsity_weight == 0 else 'with sparsity') \
+            + ', ' + ('without batch normalization' if not use_batch_normalization else 'with batch normalization')
     in_dim = 4
     out_dim = 3
     n_cases = 3
@@ -229,7 +232,7 @@ def test_layer(add_noise=False, no_loss=False, loss_after_nonlin=False,
 
     layer = ly.Layer(in_dim, out_dim, nonlin_type=nonlin_type,
             dropout=dropout_rate, sparsity=sparsity, sparsity_weight=sparsity_weight,
-            loss=loss, loss_after_nonlin=loss_after_nonlin)
+            loss=loss, loss_after_nonlin=loss_after_nonlin, use_batch_normalization=use_batch_normalization)
 
     if sparsity_weight > 0:
         # disable smoothing over minibatches
@@ -259,9 +262,45 @@ def test_layer(add_noise=False, no_loss=False, loss_after_nonlin=False,
     fdiff_grad = finite_difference_gradient(f, w_0)
 
     test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
-            backprop_grad, '  Backpropagation Gradient')
+            backprop_grad, '  Backpropagation Gradient', 
+            eps=_GRAD_CHECK_EPS if not use_batch_normalization else _BN_GRAD_CHECK_EPS)
     print ''
     gnp.seed_rand(int(time.time()))
+    return test_passed
+
+def test_batch_normalization_layer():
+    print 'Testing Batch Normalization layer'
+    in_dim = 3
+    n_cases = 5
+
+    x = gnp.randn(n_cases, in_dim) * 2 + 3
+    t = gnp.randn(n_cases, in_dim) * 2
+
+    loss = ls.get_loss_from_type_name(ls.LOSS_NAME_SQUARED)
+    loss.load_target(t)
+
+    bn_layer = ly.BatchNormalizationLayer(in_dim)
+    bn_layer.params.gamma = gnp.rand(in_dim)
+    bn_layer.params.beta = gnp.rand(in_dim)
+
+    w_0 = bn_layer.params.get_param_vec()
+
+    y = bn_layer.forward_prop(x)
+    _, loss_grad = loss.compute_not_weighted_loss_and_grad(y, True)
+    bn_layer.backward_prop(loss_grad)
+
+    backprop_grad = bn_layer.params.get_grad_vec()
+
+    def f(w):
+        bn_layer.params.set_param_from_vec(w)
+        y = bn_layer.forward_prop(x)
+        return loss.compute_not_weighted_loss_and_grad(y)[0]
+
+    fdiff_grad = finite_difference_gradient(f, w_0)
+
+    test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
+            backprop_grad, '  Backpropagation Gradient', eps=_BN_GRAD_CHECK_EPS)
+    print ''
     return test_passed
 
 def test_all_layer():
@@ -288,8 +327,20 @@ def test_all_layer():
         n_success += 1
     if test_layer(add_noise=True, sparsity_weight=1.0):
         n_success += 1
+    if test_batch_normalization_layer():
+        n_success += 1
+    if test_layer(add_noise=True, use_batch_normalization=True):
+        n_success += 1
+    if test_layer(add_noise=False, use_batch_normalization=True):
+        n_success += 1
+    if test_layer(add_noise=True, use_batch_normalization=True, loss_after_nonlin=True):
+        n_success += 1
+    if test_layer(add_noise=False, use_batch_normalization=True, loss_after_nonlin=False):
+        n_success += 1
+    if test_layer(add_noise=True, use_batch_normalization=True, loss_after_nonlin=True, sparsity_weight=1.0):
+        n_success += 1
 
-    n_tests = 8
+    n_tests = 14
 
     print '=============='
     print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)
@@ -297,7 +348,7 @@ def test_all_layer():
 
     return n_success, n_tests
 
-def create_neuralnet(dropout_rate, loss_after_nonlin=False):
+def create_neuralnet(dropout_rate, loss_after_nonlin=False, use_batch_normalization=False):
     in_dim = 3
     out_dim = 2
     h1_dim = 2
@@ -306,22 +357,25 @@ def create_neuralnet(dropout_rate, loss_after_nonlin=False):
 
     net = nn.NeuralNet(in_dim, out_dim)
     net.add_layer(h1_dim, nonlin_type=ly.NONLIN_NAME_TANH, dropout=0)
-    net.add_layer(h2_dim, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate)
+    net.add_layer(h2_dim, nonlin_type=ly.NONLIN_NAME_SIGMOID, dropout=dropout_rate,
+            use_batch_normalization=use_batch_normalization)
     #net.add_layer(h3_dim, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
     #net.add_layer(10, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
     #net.add_layer(10, nonlin_type=ly.NONLIN_NAME_RELU, dropout=dropout_rate)
-    net.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=dropout_rate)
+    net.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR, dropout=dropout_rate,
+            use_batch_normalization=use_batch_normalization)
 
     net.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=1.1, loss_after_nonlin=loss_after_nonlin)
     return net
 
-def test_neuralnet(add_noise=False, loss_after_nonlin=False):
-    print 'Testing NeuralNet, ' + ('with noise' if add_noise else 'without noise')
+def test_neuralnet(add_noise=False, loss_after_nonlin=False, use_batch_normalization=False):
+    print 'Testing NeuralNet, ' + ('with noise' if add_noise else 'without noise') \
+            + ', ' + ('with BN' if use_batch_normalization else 'without BN')
     n_cases = 5
     seed = 8
     dropout_rate = 0.5 if add_noise else 0
 
-    net = create_neuralnet(dropout_rate, loss_after_nonlin=loss_after_nonlin)
+    net = create_neuralnet(dropout_rate, loss_after_nonlin=loss_after_nonlin, use_batch_normalization=use_batch_normalization)
    
     print net
 
@@ -349,16 +403,18 @@ def test_neuralnet(add_noise=False, loss_after_nonlin=False):
     f = fdiff_grad_generator(net, x, None, add_noise=add_noise, seed=seed)
     fdiff_grad = finite_difference_gradient(f, net.get_param_vec())
 
+    eps = _BN_GRAD_CHECK_EPS if use_batch_normalization else _GRAD_CHECK_EPS
+
     test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
-            backprop_grad, '  Backpropagation Gradient')
+            backprop_grad, '  Backpropagation Gradient', eps=eps)
     print ''
 
     gnp.seed_rand(int(time.time()))
     return test_passed
 
-def test_neuralnet_io(loss_after_nonlin=False):
+def test_neuralnet_io(loss_after_nonlin=False, use_batch_normalization=False):
     def f_create():
-        return create_neuralnet(0.5, loss_after_nonlin=loss_after_nonlin)
+        return create_neuralnet(0.5, loss_after_nonlin=loss_after_nonlin, use_batch_normalization=use_batch_normalization)
     def f_create_void():
         return nn.NeuralNet(0,0)
     return test_net_io(f_create, f_create_void)
@@ -379,12 +435,18 @@ def test_all_neuralnet():
         n_success += 1
     if test_neuralnet(add_noise=True, loss_after_nonlin=True):
         n_success += 1
+    if test_neuralnet(add_noise=False, loss_after_nonlin=True, use_batch_normalization=True):
+        n_success += 1
+    if test_neuralnet(add_noise=True, loss_after_nonlin=True, use_batch_normalization=True):
+        n_success += 1
     if test_neuralnet_io():
         n_success += 1
     if test_neuralnet_io(loss_after_nonlin=True):
         n_success += 1
+    if test_neuralnet_io(loss_after_nonlin=True, use_batch_normalization=True):
+        n_success += 1
 
-    n_tests = 6
+    n_tests = 9
 
     print '=============='
     print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)
