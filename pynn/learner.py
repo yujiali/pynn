@@ -155,7 +155,7 @@ class Learner(object):
     def f_and_fprime(self, w):
         self.net.set_param_from_vec(w)
         self.net.clear_gradient()
-        self.net.forward_prop(self.x_train, add_noise=True, compute_loss=True)
+        self.net.forward_prop(self.x_train, add_noise=True, compute_loss=True, is_test=False)
         loss = self.net.get_loss()
         self.net.backward_prop()
         grad = self.net.get_grad_vec()
@@ -175,7 +175,7 @@ class Learner(object):
         self.net.set_param_from_vec(w)
         self.net.clear_gradient()
         self.net.load_target(t)
-        self.net.forward_prop(x, add_noise=True, compute_loss=True)
+        self.net.forward_prop(x, add_noise=True, compute_loss=True, is_test=False)
         loss = self.net.get_loss()
         self.net.backward_prop()
         grad = self.net.get_grad_vec()
@@ -192,6 +192,9 @@ class Learner(object):
                 grad += weight_decay * w
                 return loss, grad
             return f_and_fprime
+
+    def setup_batch_normalization_mean_std(self):
+        self.net.forward_prop_setup_bn_mean_std_on_big_set(self.x_train)
 
     def evaluate_loss_large_set(self, x, t, batch_size=1000):
         """
@@ -211,7 +214,7 @@ class Learner(object):
             i_end = i_start + batch_size if i_batch < n_batches - 1 else n_cases
 
             self.net.load_target(t[i_start:i_end])
-            self.net.forward_prop(x[i_start:i_end], add_noise=False, compute_loss=True)
+            self.net.forward_prop(x[i_start:i_end], add_noise=False, compute_loss=True, is_test=True)
             total_loss += self.net.get_loss()
 
         return total_loss / n_cases
@@ -227,6 +230,8 @@ class Learner(object):
         w_0 = self.net.get_param_vec()
 
         self.net.set_noiseless_param_from_vec(w)
+        self.net.setup_batch_normalization_mean_std()
+
         #self.net.load_target(self.t_train)
         #self.net.forward_prop(self.x_train, add_noise=False, compute_loss=True)
         #train_loss = self.net.get_loss() / self.x_train.shape[0]
@@ -238,7 +243,7 @@ class Learner(object):
             #val_loss = self.net.get_loss() / self.x_val.shape[0]
             val_loss = self.evaluate_loss_large_set(self.x_val, self.t_val)
 
-            s = 'train loss %.4f, val loss ' % train_loss
+            s += 'train loss %.4f, val loss ' % train_loss
             if self.best_obj is None or val_loss < self.best_obj:
                 self.best_obj = val_loss
                 self.best_w = w.copy()
@@ -382,6 +387,20 @@ class Learner(object):
                 print '%s=%s' % (str(k), str(v))
             print ''
 
+def _convert_to_one_of_K(t, K):
+    if t is None:
+        return t
+
+    if len(t.shape) == 2 and t.shape[0] > 1 and t.shape[1] > 1:
+        return t
+
+    t = t.ravel()
+
+    tt = np.zeros((t.size, K), dtype=np.int32)
+    tt[np.arange(t.size), t] = 1
+
+    return gnp.garray(tt)
+
 class ClassificationLearner(Learner):
     """
     Learner tailored to a classification problem.
@@ -389,25 +408,37 @@ class ClassificationLearner(Learner):
     def _compute_accuracy(self, t, tpred):
         return t[np.arange(len(tpred)), tpred].mean()
 
+    def load_data(self, x_train, t_train, x_val=None, t_val=None):
+        self.x_train = x_train
+        self.t_train = _convert_to_one_of_K(t_train, self.net.out_dim)
+        self.x_val = x_val
+        self.t_val = _convert_to_one_of_K(t_val, self.net.out_dim)
+
+        self.use_validation = (self.x_val is not None) and (self.t_val is not None)
+
     def f_info(self, w):
         train_loss = None
         val_loss = None
 
+        s = self.net.get_status_info()
+        if len(s) > 0: s += ', '
+
         w_0 = self.net.get_param_vec()
         self.net.set_noiseless_param_from_vec(w)
+        self.setup_batch_normalization_mean_std()
         self.net.load_target(self.t_train)
-        y = self.net.forward_prop(self.x_train, add_noise=False, compute_loss=True)
+        y = self.net.forward_prop(self.x_train, add_noise=False, compute_loss=True, is_test=True)
         train_loss = self.net.get_loss() / self.x_train.shape[0]
         train_acc = self._compute_accuracy(self.t_train, y.argmax(axis=1))
 
         if self.use_validation:
             self.net.load_target(self.t_val)
-            y = self.net.forward_prop(self.x_val, add_noise=False, compute_loss=True)
+            y = self.net.forward_prop(self.x_val, add_noise=False, compute_loss=True, is_test=True)
             val_loss = self.net.get_loss() / self.x_val.shape[0]
             val_acc = self._compute_accuracy(self.t_val, y.argmax(axis=1))
             self.net.load_target(self.t_train)
 
-            s = 'train loss %.4f, acc %.4f, val loss %.4f, acc ' % (train_loss, train_acc, val_loss)
+            s += 'train loss %.4f, acc %.4f, val loss %.4f, acc ' % (train_loss, train_acc, val_loss)
             if self.best_obj is None or val_acc > self.best_obj:
                 self.best_obj = val_acc 
                 self.best_w = w.copy()
@@ -415,7 +446,7 @@ class ClassificationLearner(Learner):
             else:
                 s += '%.4f' % val_acc
         else:
-            s = 'train loss %.4f, acc ' % train_loss
+            s += 'train loss %.4f, acc ' % train_loss
             if self.best_obj is None or train_acc < self.best_obj:
                 self.best_obj = train_acc
                 self.best_w = w.copy()
@@ -486,7 +517,7 @@ class AutoEncoderPretrainer(object):
                         nonlin_type=enc.layers[i].nonlin.get_name())
                 base_enc.layers[i].params.set_param_from_vec(
                         enc.layers[i].params.get_param_vec())
-            x = base_enc.forward_prop(self.x, add_noise=False, compute_loss=False)
+            x = base_enc.forward_prop(self.x, add_noise=False, compute_loss=False, is_test=True)
 
         enc_layer = enc.layers[layer_idx]
         dec_layer = dec.layers[len(dec.layers)-1-layer_idx]

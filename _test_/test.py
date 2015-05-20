@@ -17,6 +17,7 @@ import time
 _GRAD_CHECK_EPS = 1e-6
 _BN_GRAD_CHECK_EPS = 1e-5
 _FDIFF_EPS = 1e-8
+_DIFF_SCALE_OFFSET = 1
 
 _TEMP_FILE_NAME = '_temp_.pdata'
 
@@ -27,16 +28,25 @@ def vec_str(v):
     s += ']'
     return s
 
-def test_vec_pair(v1, msg1, v2, msg2, eps=_GRAD_CHECK_EPS):
+def test_vec_pair(v1, msg1, v2, msg2, eps=_GRAD_CHECK_EPS, use_rel_err=False):
     print msg1 + ' : ' + vec_str(v1)
     print msg2 + ' : ' + vec_str(v2)
     n_space = len(msg2) - len('diff')
     print ' ' * n_space + 'diff' + ' : ' + vec_str(v1 - v2)
-    # err = np.sqrt(((v1 - v2)**2).sum())
-    err = np.max(np.abs(v1 - v2))
-    print 'err : %.8f' % err
 
-    success = err < eps
+    if use_rel_err:
+        scale = np.maximum(np.abs(v1), np.abs(v2))
+        err = np.abs(v1 - v2) / (scale + _DIFF_SCALE_OFFSET)
+        n_space = len(msg2) - len('rel err')
+        print ' ' * n_space + 'rel err' + ' : ' + vec_str(err)
+        print 'max err : %.8f' % err.max()
+
+        success = err.max() < eps
+    else:
+        err = np.sqrt(((v1 - v2)**2).sum())
+        print 'err : %.8f' % err
+        success = err < eps
+
     print '** SUCCESS **' if success else '** FAIL **'
 
     return success
@@ -63,7 +73,7 @@ def fdiff_grad_generator(net, x, t, add_noise=False, seed=None):
             gnp.seed_rand(seed)
         w_0 = net.get_param_vec()
         net.set_param_from_vec(w)
-        net.forward_prop(x, add_noise=add_noise, compute_loss=True)
+        net.forward_prop(x, add_noise=add_noise, compute_loss=True, is_test=False)
         loss = net.get_loss()
         net.set_param_from_vec(w_0)
 
@@ -243,7 +253,7 @@ def test_layer(add_noise=False, no_loss=False, loss_after_nonlin=False,
     if add_noise:
         gnp.seed_rand(seed)
     layer.params.clear_gradient()
-    layer.forward_prop(x, compute_loss=True)
+    layer.forward_prop(x, compute_loss=True, is_test=False)
     layer.backward_prop()
     backprop_grad = layer.params.get_grad_vec()
 
@@ -253,7 +263,7 @@ def test_layer(add_noise=False, no_loss=False, loss_after_nonlin=False,
             # function is called
             gnp.seed_rand(seed)
         layer.params.set_param_from_vec(w)
-        layer.forward_prop(x, compute_loss=True)
+        layer.forward_prop(x, compute_loss=True, is_test=False)
         if layer.sparsity_weight == 0:
             return layer.loss_value
         else:
@@ -263,7 +273,8 @@ def test_layer(add_noise=False, no_loss=False, loss_after_nonlin=False,
 
     test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
             backprop_grad, '  Backpropagation Gradient', 
-            eps=_GRAD_CHECK_EPS if not use_batch_normalization else _BN_GRAD_CHECK_EPS)
+            eps=_GRAD_CHECK_EPS if not use_batch_normalization else _BN_GRAD_CHECK_EPS, 
+            use_rel_err=use_batch_normalization)
     print ''
     gnp.seed_rand(int(time.time()))
     return test_passed
@@ -285,7 +296,7 @@ def test_batch_normalization_layer():
 
     w_0 = bn_layer.params.get_param_vec()
 
-    y = bn_layer.forward_prop(x)
+    y = bn_layer.forward_prop(x, is_test=False)
     _, loss_grad = loss.compute_not_weighted_loss_and_grad(y, True)
     bn_layer.backward_prop(loss_grad)
 
@@ -293,13 +304,14 @@ def test_batch_normalization_layer():
 
     def f(w):
         bn_layer.params.set_param_from_vec(w)
-        y = bn_layer.forward_prop(x)
+        y = bn_layer.forward_prop(x, is_test=False)
         return loss.compute_not_weighted_loss_and_grad(y)[0]
 
     fdiff_grad = finite_difference_gradient(f, w_0)
 
     test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
-            backprop_grad, '  Backpropagation Gradient', eps=_BN_GRAD_CHECK_EPS)
+            backprop_grad, '  Backpropagation Gradient', eps=_BN_GRAD_CHECK_EPS,
+            use_rel_err=True)
     print ''
     return test_passed
 
@@ -394,7 +406,7 @@ def test_neuralnet(add_noise=False, loss_after_nonlin=False, use_batch_normaliza
 
     if add_noise:
         gnp.seed_rand(seed)
-    net.forward_prop(x, add_noise=add_noise, compute_loss=True)
+    net.forward_prop(x, add_noise=add_noise, compute_loss=True, is_test=False)
     net.clear_gradient()
     net.backward_prop()
 
@@ -406,7 +418,7 @@ def test_neuralnet(add_noise=False, loss_after_nonlin=False, use_batch_normaliza
     eps = _BN_GRAD_CHECK_EPS if use_batch_normalization else _GRAD_CHECK_EPS
 
     test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
-            backprop_grad, '  Backpropagation Gradient', eps=eps)
+            backprop_grad, '  Backpropagation Gradient', eps=eps, use_rel_err=use_batch_normalization)
     print ''
 
     gnp.seed_rand(int(time.time()))
@@ -494,7 +506,7 @@ def test_stacked_net_gradient(add_noise=False):
         gnp.seed_rand(seed)
 
     stacked_net.clear_gradient()
-    stacked_net.forward_prop(x, add_noise=add_noise, compute_loss=True)
+    stacked_net.forward_prop(x, add_noise=add_noise, compute_loss=True, is_test=False)
     stacked_net.backward_prop()
 
     backprop_grad = stacked_net.get_grad_vec()
@@ -585,7 +597,7 @@ def test_y_net_gradient(add_noise=False):
         gnp.seed_rand(seed)
 
     ynet.clear_gradient()
-    ynet.forward_prop(x, add_noise=add_noise, compute_loss=True)
+    ynet.forward_prop(x, add_noise=add_noise, compute_loss=True, is_test=False)
     ynet.backward_prop()
 
     backprop_grad = ynet.get_grad_vec()
@@ -682,7 +694,7 @@ def test_autoencoder(add_noise=False):
         gnp.seed_rand(seed)
 
     autoencoder.clear_gradient()
-    autoencoder.forward_prop(x, add_noise=add_noise, compute_loss=True)
+    autoencoder.forward_prop(x, add_noise=add_noise, compute_loss=True, is_test=False)
     autoencoder.backward_prop()
 
     backprop_grad = autoencoder.get_grad_vec()

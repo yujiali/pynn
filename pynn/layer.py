@@ -6,6 +6,7 @@ Yujia Li, 09/2014
 
 import gnumpy as gnp
 import numpy as np
+import math
 import const
 import struct
 import loss as ls
@@ -16,8 +17,8 @@ class LayerParams(object):
     """
     _param_count = 0
 
-    def __init__(self, in_dim=1, out_dim=1, init_scale=1e-1, dropout=0, init_bias=0):
-        self.W = gnp.randn(in_dim, out_dim) * init_scale
+    def __init__(self, in_dim=1, out_dim=1, init_scale=1.0, dropout=0, init_bias=0):
+        self.W = gnp.randn(in_dim, out_dim) * math.sqrt(float(init_scale) / in_dim)
         self.b = gnp.ones(out_dim) * init_bias
 
         self.W_grad = self.W * 0
@@ -98,12 +99,22 @@ class BatchNormalizationLayerParams(LayerParams):
     """
     Parameters for batch normalization, gamma and beta.
     """
-    def __init__(self, layer_dim=None):
+    def __init__(self, layer_dim=None, init_bias=0, mean_std_update_rate=0.01, mean_std_update_iters=1):
         if layer_dim is None:
             return
 
         self.gamma = gnp.ones(layer_dim)
-        self.beta = gnp.zeros(layer_dim)
+        self.beta = gnp.ones(layer_dim) * init_bias
+
+        # mu and sigma keep a moving average of mean and standard deviation
+        self.mu = None
+        self.sigma = None
+        self.cum_mu = gnp.zeros(layer_dim)
+        self.cum_sigma = gnp.zeros(layer_dim)
+        self.cum_iters = 0
+        self.cum_init = True
+        self.mean_std_update_rate  = mean_std_update_rate
+        self.mean_std_update_iters = mean_std_update_iters
 
         self.gamma_grad = gnp.zeros(layer_dim)
         self.beta_grad = gnp.zeros(layer_dim)
@@ -145,6 +156,13 @@ class BatchNormalizationLayerParams(LayerParams):
         s = struct.pack('ii', self._param_id, self.gamma.size)
         s += self.gamma.asarray().astype(np.float32).tostring()
         s += self.beta.asarray().astype(np.float32).tostring()
+        if self.mu is not None and self.sigma is not None:
+            s += struct.pack('if', 1, self.mean_std_update_rate)
+            s += struct.pack('i', self.mean_std_update_iters)
+            s += self.mu.asarray().astype(np.float32).tostring()
+            s += self.sigma.asarray().astype(np.float32).tostring()
+        else:
+            s += struct.pack('i', 0)
         return s
 
     def _load_from_stream(self, f):
@@ -155,6 +173,48 @@ class BatchNormalizationLayerParams(LayerParams):
 
         self.gamma_grad = gnp.zeros(self.gamma.size)
         self.beta_grad = gnp.zeros(self.beta.size)
+
+        if struct.unpack('i', f.read(4))[0] == 1:
+            self.mean_std_update_rate = struct.unpack('f', f.read(4))[0]
+            self.mean_std_update_iters = struct.unpack('i', f.read(4))[0]
+            self.mu = gnp.garray(np.fromstring(f.read(layer_dim * 4), dtype=np.float32))
+            self.sigma = gnp.garray(np.fromstring(f.read(layer_dim * 4), dtype=np.float32))
+        else:
+            self.mean_std_update_rate = 0  # default value
+            self.mean_std_update_iters = 100
+            self.mu = None
+            self.sigma = None
+
+    def update_mean_std(self, minibatch_mean, minibatch_std):
+        self.cum_mu += minibatch_mean
+        self.cum_sigma += minibatch_std
+        self.cum_iters = (self.cum_iters + 1) % self.mean_std_update_iters
+
+        if self.cum_init and self.cum_iters != 0:
+            self.mu = self.cum_mu / self.cum_iters
+            self.sigma = self.cum_sigma / self.cum_iters
+        elif self.cum_iters == 0:
+            self.cum_mu /= self.mean_std_update_iters
+            self.cum_sigma /= self.mean_std_update_iters
+
+            if self.cum_init:
+                if self.mu is None or self.sigma is None:
+                    self.mu = self.cum_mu.copy()
+                    self.sigma = self.cum_sigma.copy()
+                else:
+                    self.mu[:] = self.cum_mu
+                    self.sigma[:] = self.cum_sigma
+                self.cum_init = False
+            else:
+                self.mu = self.mu * (1 - self.mean_std_update_rate) + self.cum_mu * self.mean_std_update_rate
+                self.sigma = self.sigma * (1 - self.mean_std_update_rate) + self.cum_sigma * self.mean_std_update_rate
+
+            self.cum_mu[:] = 0
+            self.cum_sigma[:] = 0
+
+    def set_mean_std(self, mean, std):
+        self.mu = mean
+        self.sigma = std
 
     def get_type_code(self):
         return 1
@@ -197,7 +257,7 @@ class Layer(object):
 
         self.use_batch_normalization = use_batch_normalization
         if use_batch_normalization:
-            self.bn_layer = BatchNormalizationLayer(out_dim)
+            self.bn_layer = BatchNormalizationLayer(out_dim, init_bias=init_bias)
             self._bn_layer_param_id = self.bn_layer._param_id
 
     def set_params(self, params):
@@ -209,7 +269,24 @@ class Layer(object):
         self.loss = loss
         self.loss_after_nonlin = loss_after_nonlin
 
-    def forward_prop(self, X, add_noise=False, compute_loss=False):
+    def forward_prop_setup_bn_mean_std_on_big_set(self, X, minibatch_size=1000):
+        i_start = X.shape[0] % minibatch_size
+        a = [X[:i_start].dot(self.params.W)]
+        while i_start < X.shape[0]:
+            a.append(X[i_start:i_start + minibatch_size].dot(self.params.W))
+            i_start += minibatch_size
+
+        a = gnp.concatenate(a, axis=0)
+        if not self.use_batch_normalization:
+            a += self.params.b
+        else:
+            self.bn_layer.setup_mean_std_stats(a)
+            a = self.bn_layer.forward_prop(a, is_test=True)
+
+        Y = self.nonlin.forward_prop(a)
+        return Y
+
+    def forward_prop(self, X, add_noise=False, compute_loss=False, is_test=True):
         """
         Compute the forward propagation step that maps the input data matrix X
         into the output. Loss and loss gradient will be computed when
@@ -235,7 +312,7 @@ class Layer(object):
                         - (1 - self.sparsity) * gnp.log(1 - self._sparsity_current + 1e-20)).sum() * self.sparsity_weight
         else:
             self.activation = self.inputs.dot(self.params.W)
-            self.bn_output = self.bn_layer.forward_prop(self.activation)
+            self.bn_output = self.bn_layer.forward_prop(self.activation, is_test=is_test)
             self.output = self.nonlin.forward_prop(self.bn_output)
 
         if compute_loss and self.loss is not None:
@@ -334,32 +411,48 @@ class Layer(object):
                 + (' ' + str(self.bn_layer) if self.use_batch_normalization else '')
 
     def get_status_info(self):
-        return '' if self.sparsity_weight == 0 else 'layer %dx%d sparsity=%g' % (
-                self.in_dim, self.out_dim, self._sparsity_current.mean())
+        return ('' if self.sparsity_weight == 0 else 'layer %dx%d sparsity=%g' % (
+                self.in_dim, self.out_dim, self._sparsity_current.mean())) + (
+                '' if not self.use_batch_normalization else self.bn_layer.get_status_info())
 
 class BatchNormalizationLayer(object):
     """
     Batch normalization layer.
     """
-    def __init__(self, in_dim=1):
-        self.params = BatchNormalizationLayerParams(in_dim)
+    def __init__(self, in_dim=1, init_bias=0):
+        self.params = BatchNormalizationLayerParams(in_dim, init_bias=init_bias)
         self._param_id = self.params._param_id
+        self._res_mean = None
+        self._res_std = None
 
     def set_params(self, params):
         self.params = params
         self._param_id = params._param_id
 
-    def forward_prop(self, X, add_noise=False, compute_loss=False):
+    def setup_mean_std_stats(self, X):
+        self.params.mu = X.mean(axis=0)
+        self.params.sigma = gnp.std(X, axis=0)
+
+    def forward_prop(self, X, add_noise=False, compute_loss=False, is_test=True):
         """
         Compute the forward propagation step that maps the input data matrix X
         into the output.
         """
-        self.mu = X.mean(axis=0)
-        self.sigma = gnp.sqrt(((X - self.mu)**2).mean(axis=0))
 
-        self.X_hat = (X - self.mu) / (self.sigma + 1e-10)
+        if not is_test or self.params.mu is None or self.params.sigma is None:
+            self.mu = X.mean(axis=0)
+            self.sigma = gnp.std(X, axis=0)
+            self.X_hat = (X - self.mu) / (self.sigma + 1e-10)
+            self.params.update_mean_std(self.mu, self.sigma)
+        else:
+            self.X_hat = (X - self.params.mu) / (self.params.sigma + 1e-10)
+            #self._res_mean = gnp.abs(self.X_hat.mean(axis=0)).max()
+            #self._res_std = gnp.abs((gnp.std(self.X_hat)) - 1).max()
+            #self.mu = X.mean(axis=0)
+            #self.sigma = gnp.sqrt(((X - self.mu)**2).mean(axis=0))
+            #self.X_hat = (X - self.mu) / (self.sigma + 1e-10)
+
         self.Y = self.X_hat * self.params.gamma + self.params.beta
-
         return self.Y
 
     def backward_prop(self, grad):
@@ -390,7 +483,8 @@ class BatchNormalizationLayer(object):
         return '<BN>'
 
     def get_status_info(self):
-        return ''
+        # return ''
+        return '' if self._res_mean is None or self._res_std is None else 'rm %.2f, rv %.2f' % (self._res_mean, self._res_std)
 
 class Nonlinearity(object):
     """

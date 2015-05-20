@@ -32,7 +32,7 @@ class BaseNeuralNet(object):
     def __init__(self):
         pass
 
-    def forward_prop(self, X, add_noise=False, compute_loss=False):
+    def forward_prop(self, X, add_noise=False, compute_loss=False, is_test=True):
         """
         Do a forward propagation, which maps input matrix X (n_cases, n_dims)
         to an output matrix Y (n_cases, n_out_dims).
@@ -229,7 +229,7 @@ class NeuralNet(BaseNeuralNet):
         if self.loss is not None and target is not None:
             self.loss.load_target(target, *args, **kwargs)
 
-    def forward_prop(self, X, add_noise=False, compute_loss=False):
+    def forward_prop(self, X, add_noise=False, compute_loss=False, is_test=True):
         """
         Compute forward prop, return the output of the network.
         """
@@ -240,7 +240,21 @@ class NeuralNet(BaseNeuralNet):
 
         for i in range(len(self.layers)):
             x_input = self.layers[i].forward_prop(x_input, 
-                    add_noise=add_noise, compute_loss=compute_loss)
+                    add_noise=add_noise, compute_loss=compute_loss, is_test=is_test)
+
+        return x_input
+
+    def forward_prop_setup_bn_mean_std_on_big_set(self, X, minibatch_size=1000):
+        if not any([l.use_batch_normalization for l in self.layers]):
+            return
+
+        if isinstance(X, gnp.garray):
+            x_input = X
+        else:
+            x_input = gnp.garray(X)
+
+        for i in range(len(self.layers)):
+            x_input = self.layers[i].forward_prop_setup_bn_mean_std_on_big_set(x_input, minibatch_size=minibatch_size)
 
         return x_input
 
@@ -432,11 +446,11 @@ class StackedNeuralNet(CompositionalNeuralNet):
         for i in range(len(targets)):
             self.neural_nets[i].load_target(targets[i])
 
-    def forward_prop(self, X, add_noise=False, compute_loss=False):
+    def forward_prop(self, X, add_noise=False, compute_loss=False, is_test=True):
         x_input = X
         for i in range(len(self.neural_nets)):
             x_input = self.neural_nets[i].forward_prop(x_input, 
-                    add_noise=add_noise, compute_loss=compute_loss)
+                    add_noise=add_noise, compute_loss=compute_loss, is_test=is_test)
         return x_input
 
     def backward_prop(self, grad=None):
@@ -493,10 +507,10 @@ class YNeuralNet(CompositionalNeuralNet):
         self.out_net1.load_target(args[1])
         self.out_net2.load_target(args[2])
 
-    def forward_prop(self, X, add_noise=False, compute_loss=False):
-        h = self.in_net.forward_prop(X, add_noise=add_noise, compute_loss=compute_loss)
-        self.out_net1.forward_prop(h, add_noise=add_noise, compute_loss=compute_loss)
-        self.out_net2.forward_prop(h, add_noise=add_noise, compute_loss=compute_loss)
+    def forward_prop(self, X, add_noise=False, compute_loss=False, is_test=True):
+        h = self.in_net.forward_prop(X, add_noise=add_noise, compute_loss=compute_loss, is_test=is_test)
+        self.out_net1.forward_prop(h, add_noise=add_noise, compute_loss=compute_loss, is_test=is_test)
+        self.out_net2.forward_prop(h, add_noise=add_noise, compute_loss=compute_loss, is_test=is_test)
 
     def backward_prop(self):
         grad = self.out_net1.backward_prop()
@@ -535,7 +549,7 @@ class AutoEncoder(CompositionalNeuralNet):
     def load_target(self, *args):
         pass
 
-    def forward_prop(self, X, add_noise=False, compute_loss=False):
+    def forward_prop(self, X, add_noise=False, compute_loss=False, is_test=True):
         """
         Equivalently this computes the reconstruction.
         """
@@ -544,12 +558,12 @@ class AutoEncoder(CompositionalNeuralNet):
             self.decoder.load_target(X)
 
         h = self.encoder.forward_prop(X, add_noise=add_noise,
-                compute_loss=compute_loss)
+                compute_loss=compute_loss, is_test=is_test)
         return self.decoder.forward_prop(h, add_noise=add_noise,
-                compute_loss=compute_loss)
+                compute_loss=compute_loss, is_test=is_test)
 
     def encode(self, X):
-        return self.encoder.forward_prop(X, add_noise=False, compute_loss=False)
+        return self.encoder.forward_prop(X, add_noise=False, compute_loss=False, is_test=True)
 
     def backward_prop(self):
         grad = self.decoder.backward_prop()
