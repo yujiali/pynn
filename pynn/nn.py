@@ -175,7 +175,7 @@ class NeuralNet(BaseNeuralNet):
         self.output_layer_added = False
 
     def add_layer(self, out_dim=0, nonlin_type=None, dropout=0, sparsity=0, 
-            sparsity_weight=0, init_scale=1e-1, params=None, init_bias=0, use_batch_normalization=False):
+            sparsity_weight=0, init_scale=1, params=None, init_bias=0, use_batch_normalization=False):
         """
         By default, nonlinearity is linear.
 
@@ -244,8 +244,8 @@ class NeuralNet(BaseNeuralNet):
 
         return x_input
 
-    def forward_prop_setup_bn_mean_std_on_big_set(self, X, minibatch_size=1000):
-        if not any([l.use_batch_normalization for l in self.layers]):
+    def forward_prop_setup_bn_mean_std_on_big_set(self, X, minibatch_size=1000, early_exit=True):
+        if early_exit and not any([l.use_batch_normalization for l in self.layers]):
             return
 
         if isinstance(X, gnp.garray):
@@ -446,6 +446,12 @@ class StackedNeuralNet(CompositionalNeuralNet):
         for i in range(len(targets)):
             self.neural_nets[i].load_target(targets[i])
 
+    def forward_prop_setup_bn_mean_std_on_big_set(self, X, **kwargs):
+        x_input = X
+        for i in range(len(self.neural_nets)):
+            x_input = self.neural_nets[i].forward_prop_setup_bn_mean_std_on_big_set(x_input, **kwargs)
+        return x_input
+
     def forward_prop(self, X, add_noise=False, compute_loss=False, is_test=True):
         x_input = X
         for i in range(len(self.neural_nets)):
@@ -507,6 +513,11 @@ class YNeuralNet(CompositionalNeuralNet):
         self.out_net1.load_target(args[1])
         self.out_net2.load_target(args[2])
 
+    def forward_prop_setup_bn_mean_std_on_big_set(self, X, **kwargs):
+        h = self.in_net.forward_prop_setup_bn_mean_std_on_big_set(X, **kwargs)
+        self.out_net1.forward_prop_setup_bn_mean_std_on_big_set(h, **kwargs)
+        self.out_net2.forward_prop_setup_bn_mean_std_on_big_set(h, **kwargs)
+
     def forward_prop(self, X, add_noise=False, compute_loss=False, is_test=True):
         h = self.in_net.forward_prop(X, add_noise=add_noise, compute_loss=compute_loss, is_test=is_test)
         self.out_net1.forward_prop(h, add_noise=add_noise, compute_loss=compute_loss, is_test=is_test)
@@ -548,6 +559,10 @@ class AutoEncoder(CompositionalNeuralNet):
 
     def load_target(self, *args):
         pass
+
+    def forward_prop_setup_bn_mean_std_on_big_set(self, X, **kwargs):
+        h = self.encoder.forward_prop_setup_bn_mean_std_on_big_set(X, **kwargs)
+        return self.decoder.forward_prop_setup_bn_mean_std_on_big_set(h, **kwargs)
 
     def forward_prop(self, X, add_noise=False, compute_loss=False, is_test=True):
         """

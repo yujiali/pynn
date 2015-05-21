@@ -99,7 +99,7 @@ class BatchNormalizationLayerParams(LayerParams):
     """
     Parameters for batch normalization, gamma and beta.
     """
-    def __init__(self, layer_dim=None, init_bias=0, mean_std_update_rate=0.01, mean_std_update_iters=1):
+    def __init__(self, layer_dim=None, init_bias=0, mean_std_update_rate=0.01):
         if layer_dim is None:
             return
 
@@ -109,12 +109,7 @@ class BatchNormalizationLayerParams(LayerParams):
         # mu and sigma keep a moving average of mean and standard deviation
         self.mu = None
         self.sigma = None
-        self.cum_mu = gnp.zeros(layer_dim)
-        self.cum_sigma = gnp.zeros(layer_dim)
-        self.cum_iters = 0
-        self.cum_init = True
         self.mean_std_update_rate  = mean_std_update_rate
-        self.mean_std_update_iters = mean_std_update_iters
 
         self.gamma_grad = gnp.zeros(layer_dim)
         self.beta_grad = gnp.zeros(layer_dim)
@@ -158,7 +153,6 @@ class BatchNormalizationLayerParams(LayerParams):
         s += self.beta.asarray().astype(np.float32).tostring()
         if self.mu is not None and self.sigma is not None:
             s += struct.pack('if', 1, self.mean_std_update_rate)
-            s += struct.pack('i', self.mean_std_update_iters)
             s += self.mu.asarray().astype(np.float32).tostring()
             s += self.sigma.asarray().astype(np.float32).tostring()
         else:
@@ -176,45 +170,24 @@ class BatchNormalizationLayerParams(LayerParams):
 
         if struct.unpack('i', f.read(4))[0] == 1:
             self.mean_std_update_rate = struct.unpack('f', f.read(4))[0]
-            self.mean_std_update_iters = struct.unpack('i', f.read(4))[0]
             self.mu = gnp.garray(np.fromstring(f.read(layer_dim * 4), dtype=np.float32))
             self.sigma = gnp.garray(np.fromstring(f.read(layer_dim * 4), dtype=np.float32))
         else:
             self.mean_std_update_rate = 0  # default value
-            self.mean_std_update_iters = 100
             self.mu = None
             self.sigma = None
 
     def update_mean_std(self, minibatch_mean, minibatch_std):
-        self.cum_mu += minibatch_mean
-        self.cum_sigma += minibatch_std
-        self.cum_iters = (self.cum_iters + 1) % self.mean_std_update_iters
-
-        if self.cum_init and self.cum_iters != 0:
-            self.mu = self.cum_mu / self.cum_iters
-            self.sigma = self.cum_sigma / self.cum_iters
-        elif self.cum_iters == 0:
-            self.cum_mu /= self.mean_std_update_iters
-            self.cum_sigma /= self.mean_std_update_iters
-
-            if self.cum_init:
-                if self.mu is None or self.sigma is None:
-                    self.mu = self.cum_mu.copy()
-                    self.sigma = self.cum_sigma.copy()
-                else:
-                    self.mu[:] = self.cum_mu
-                    self.sigma[:] = self.cum_sigma
-                self.cum_init = False
-            else:
-                self.mu = self.mu * (1 - self.mean_std_update_rate) + self.cum_mu * self.mean_std_update_rate
-                self.sigma = self.sigma * (1 - self.mean_std_update_rate) + self.cum_sigma * self.mean_std_update_rate
-
-            self.cum_mu[:] = 0
-            self.cum_sigma[:] = 0
+        if self.mu is None or self.sigma is None:
+            self.mu = minibatch_mean
+            self.sigma = minibatch_std
+        else:
+            self.mu = self.mu * (1 - self.mean_std_update_rate) + minibatch_mean * self.mean_std_update_rate
+            self.sigma = self.sigma * (1 - self.mean_std_update_rate) + minibatch_std * self.mean_std_update_rate
 
     def set_mean_std(self, mean, std):
         self.mu = mean
-        self.sigma = std
+        self.std = std
 
     def get_type_code(self):
         return 1
@@ -224,7 +197,7 @@ class Layer(object):
     One layer in a neural network.
     """
     def __init__(self, in_dim=1, out_dim=1, nonlin_type=None, dropout=0,
-            sparsity=0, sparsity_weight=0, init_scale=1e-1, params=None,
+            sparsity=0, sparsity_weight=0, init_scale=1, params=None,
             loss=None, loss_after_nonlin=False, init_bias=0, use_batch_normalization=False):
         if nonlin_type is None:
             nonlin_type = NONLIN_NAME_LINEAR
@@ -236,7 +209,7 @@ class Layer(object):
                 use_batch_normalization=use_batch_normalization)
 
     def build_layer(self, in_dim, out_dim, nonlin, dropout=0, sparsity=0, sparsity_weight=0,
-            init_scale=1e-1, loss=None, params=None, loss_after_nonlin=False, init_bias=0,
+            init_scale=1, loss=None, params=None, loss_after_nonlin=False, init_bias=0,
             use_batch_normalization=False):
         self.nonlin = nonlin
         self.set_params(params if params is not None else \
@@ -430,15 +403,13 @@ class BatchNormalizationLayer(object):
         self._param_id = params._param_id
 
     def setup_mean_std_stats(self, X):
-        self.params.mu = X.mean(axis=0)
-        self.params.sigma = gnp.std(X, axis=0)
+        self.params.set_mean_std(X.mean(axis=0), gnp.std(X, axis=0))
 
     def forward_prop(self, X, add_noise=False, compute_loss=False, is_test=True):
         """
         Compute the forward propagation step that maps the input data matrix X
         into the output.
         """
-
         if not is_test or self.params.mu is None or self.params.sigma is None:
             self.mu = X.mean(axis=0)
             self.sigma = gnp.std(X, axis=0)
@@ -446,8 +417,8 @@ class BatchNormalizationLayer(object):
             self.params.update_mean_std(self.mu, self.sigma)
         else:
             self.X_hat = (X - self.params.mu) / (self.params.sigma + 1e-10)
-            #self._res_mean = gnp.abs(self.X_hat.mean(axis=0)).max()
-            #self._res_std = gnp.abs((gnp.std(self.X_hat)) - 1).max()
+            self._res_mean = gnp.abs(self.X_hat.mean(axis=0)).max()
+            self._res_std = gnp.abs((gnp.std(self.X_hat)) - 1).max()
             #self.mu = X.mean(axis=0)
             #self.sigma = gnp.sqrt(((X - self.mu)**2).mean(axis=0))
             #self.X_hat = (X - self.mu) / (self.sigma + 1e-10)

@@ -230,17 +230,11 @@ class Learner(object):
         w_0 = self.net.get_param_vec()
 
         self.net.set_noiseless_param_from_vec(w)
-        self.net.setup_batch_normalization_mean_std()
+        self.setup_batch_normalization_mean_std()
 
-        #self.net.load_target(self.t_train)
-        #self.net.forward_prop(self.x_train, add_noise=False, compute_loss=True)
-        #train_loss = self.net.get_loss() / self.x_train.shape[0]
         train_loss = self.evaluate_loss_large_set(self.x_train, self.t_train)
 
         if self.use_validation:
-            #self.net.load_target(self.t_val)
-            #self.net.forward_prop(self.x_val, add_noise=False, compute_loss=True)
-            #val_loss = self.net.get_loss() / self.x_val.shape[0]
             val_loss = self.evaluate_loss_large_set(self.x_val, self.t_val)
 
             s += 'train loss %.4f, val loss ' % train_loss
@@ -525,12 +519,14 @@ class AutoEncoderPretrainer(object):
         single_layer_enc = nn.NeuralNet(enc_layer.in_dim, enc_layer.out_dim)
         single_layer_enc.add_layer(0, nonlin_type=enc_layer.nonlin.get_name(),
                 dropout=enc_layer.params.dropout, sparsity=enc_layer.sparsity, 
-                sparsity_weight=enc_layer.sparsity_weight)
+                sparsity_weight=enc_layer.sparsity_weight,
+                use_batch_normalization=enc_layer.use_batch_normalization)
 
         single_layer_dec = nn.NeuralNet(dec_layer.in_dim, dec_layer.out_dim)
         single_layer_dec.add_layer(0, nonlin_type=dec_layer.nonlin.get_name(),
                 dropout=dec_layer.params.dropout, sparsity=dec_layer.sparsity,
-                sparsity_weight=dec_layer.sparsity_weight)
+                sparsity_weight=dec_layer.sparsity_weight,
+                use_batch_normalization=dec_layer.use_batch_normalization)
 
         if dec_layer.nonlin.get_name() == ly.NONLIN_NAME_SIGMOID:
             single_layer_dec.set_loss(ls.LOSS_NAME_BINARY_CROSSENTROPY, loss_weight=1)

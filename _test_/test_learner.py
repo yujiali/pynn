@@ -40,27 +40,32 @@ def test_neural_net_learner():
     in_dim = x_train.shape[1]
     out_dim = t_train.shape[1]
 
-    net = build_classification_net(in_dim, out_dim, dropout=0.5)
+    dropout = 0.2
+    learn_rate = 1e-1
+    momentum = 0.5
+    max_iters = 500
+
+    net = build_classification_net(in_dim, out_dim, dropout=dropout)
     print 'Network #1 constructed: ' + str(net)
 
     # nn_learner = learner.Learner(net)
-    nn_learner = learner.ClassificationLearner(net, param_cache_size=5)
+    nn_learner = learner.ClassificationLearner(net, param_cache_size=1)
     nn_learner.load_data(x_train, t_train, x_val, t_val)
-    nn_learner.train_gradient_descent(learn_rate=1e-1, momentum=0.5, 
+    nn_learner.train_gradient_descent(learn_rate=learn_rate, momentum=momentum, 
         weight_decay=0, learn_rate_schedule=None, momentum_schedule=None,
         learn_rate_drop_iters=0, decrease_type='linear', adagrad_start_iter=0,
-        max_iters=500, iprint=10, verbose=True)
+        max_iters=max_iters, iprint=10, verbose=True)
 
     net = build_classification_net(in_dim, out_dim, use_batch_normalization=True)
     print 'Network #2 constructed: ' + str(net)
 
     # nn_learner = learner.Learner(net)
-    nn_learner = learner.ClassificationLearner(net, param_cache_size=5)
+    nn_learner = learner.ClassificationLearner(net, param_cache_size=1)
     nn_learner.load_data(x_train, t_train, x_val, t_val)
-    nn_learner.train_gradient_descent(learn_rate=1e-1, momentum=0.5, 
+    nn_learner.train_gradient_descent(learn_rate=learn_rate, momentum=momentum, 
         weight_decay=0, learn_rate_schedule=None, momentum_schedule=None,
         learn_rate_drop_iters=0, decrease_type='linear', adagrad_start_iter=0,
-        max_iters=500, iprint=10, verbose=True)
+        max_iters=max_iters, iprint=10, verbose=True)
 
 def test_minibatch_generator():
     import gnumpy as gnp
@@ -97,15 +102,18 @@ def test_neural_net_sgd_learner():
     out_dim = t_train.shape[1]
 
     minibatch_size=10
-    max_iters=1000
+    max_iters=500
+    dropout = 0.2
+    learn_rate = 1e-2
+    momentum = 0.9
 
-    net = build_classification_net(in_dim, out_dim, dropout=0.5)
+    net = build_classification_net(in_dim, out_dim, dropout=dropout)
     print 'Network #1 constructed: ' + str(net)
 
     # nn_learner = learner.Learner(net)
-    nn_learner = learner.ClassificationLearner(net, param_cache_size=5)
+    nn_learner = learner.ClassificationLearner(net, param_cache_size=1)
     nn_learner.load_data(x_train, t_train, x_val, t_val)
-    nn_learner.train_sgd(minibatch_size=minibatch_size, learn_rate=1e-1, momentum=0.5, 
+    nn_learner.train_sgd(minibatch_size=minibatch_size, learn_rate=learn_rate, momentum=momentum, 
         weight_decay=0, learn_rate_schedule=None, momentum_schedule=None,
         learn_rate_drop_iters=0, decrease_type='linear', adagrad_start_iter=0,
         max_iters=max_iters, iprint=10, verbose=True)
@@ -113,13 +121,13 @@ def test_neural_net_sgd_learner():
     print ''
     print ''
 
-    net = build_classification_net(in_dim, out_dim, dropout=0.5, use_batch_normalization=True)
+    net = build_classification_net(in_dim, out_dim, dropout=dropout, use_batch_normalization=True)
     print 'Network #2 constructed: ' + str(net)
 
     # nn_learner = learner.Learner(net)
-    nn_learner = learner.ClassificationLearner(net, param_cache_size=5)
+    nn_learner = learner.ClassificationLearner(net, param_cache_size=1)
     nn_learner.load_data(x_train, t_train, x_val, t_val)
-    nn_learner.train_sgd(minibatch_size=minibatch_size, learn_rate=1e-1, momentum=0.5, 
+    nn_learner.train_sgd(minibatch_size=minibatch_size, learn_rate=learn_rate, momentum=momentum, 
         weight_decay=0, learn_rate_schedule=None, momentum_schedule=None,
         learn_rate_drop_iters=0, decrease_type='linear', adagrad_start_iter=0,
         max_iters=max_iters, iprint=10, verbose=True)
@@ -131,9 +139,9 @@ def test_autoencoder_pretraining():
     h_dim = 5
 
     enc = nn.NeuralNet(in_dim, h_dim)
-    enc.add_layer(30, nonlin_type=ly.NONLIN_NAME_SIGMOID)
-    enc.add_layer(20, nonlin_type=ly.NONLIN_NAME_TANH)
-    enc.add_layer(10, nonlin_type=ly.NONLIN_NAME_RELU)
+    enc.add_layer(30, nonlin_type=ly.NONLIN_NAME_SIGMOID, use_batch_normalization=True)
+    enc.add_layer(20, nonlin_type=ly.NONLIN_NAME_TANH, use_batch_normalization=True)
+    enc.add_layer(10, nonlin_type=ly.NONLIN_NAME_RELU, use_batch_normalization=True)
     enc.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR)
 
     dec = nn.NeuralNet(h_dim, in_dim)
