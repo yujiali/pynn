@@ -43,7 +43,7 @@ def test_vec_pair(v1, msg1, v2, msg2, eps=_GRAD_CHECK_EPS, use_rel_err=False):
 
         success = err.max() < eps
     else:
-        err = np.sqrt(((v1 - v2)**2).sum())
+        err = np.abs(v1 - v2).max()
         print 'err : %.8f' % err
         success = err < eps
 

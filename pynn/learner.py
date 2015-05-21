@@ -234,6 +234,10 @@ class Learner(object):
 
         train_loss = self.evaluate_loss_large_set(self.x_train, self.t_train)
 
+        s = self.net.get_status_info()
+        if len(s) > 0:
+            s += ', '
+
         if self.use_validation:
             val_loss = self.evaluate_loss_large_set(self.x_val, self.t_val)
 
@@ -256,9 +260,6 @@ class Learner(object):
         self.net.load_target(self.t_train)
         self.net.set_param_from_vec(w_0)
         
-        net_status = self.net.get_status_info()
-        if len(net_status) > 0:
-            s += ', ' + net_status
         return s
 
     def _f_info_decorated(self, w):
