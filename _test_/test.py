@@ -12,6 +12,7 @@ import numpy as np
 import pynn.layer as ly
 import pynn.loss as ls
 import pynn.nn as nn
+import pynn.rnn as rnn
 import time
 
 _GRAD_CHECK_EPS = 1e-6
@@ -739,6 +740,77 @@ def test_all_autoencoder():
 
     return n_success, n_tests
 
+def test_rnn_io():
+    def f_create():
+        return rnn.RNN(3,3)
+    def f_create_void():
+        return rnn.RNN()
+    return test_net_io(f_create, f_create_void)
+
+def test_rnn():
+    print 'Testing RNN'
+    n_cases = 5
+
+    in_dim = 3
+    out_dim = 2
+    label_dim = 2
+
+    x = gnp.randn(n_cases, in_dim)
+    t = gnp.randn(n_cases, label_dim)
+
+    net = nn.NeuralNet(out_dim, label_dim)
+    net.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR)
+    net.set_loss(ls.LOSS_NAME_SQUARED)
+    net.load_target(t)
+
+    rnn_net = rnn.RNN(in_dim, out_dim)
+
+    print rnn_net
+    print net
+
+    rnn_net.clear_gradient()
+    net.clear_gradient()
+
+    h = rnn_net.forward_prop(x)
+    net.forward_prop(h, add_noise=False, compute_loss=True, is_test=False)
+    dh = net.backward_prop()
+    rnn_net.backward_prop(dh)
+
+    backprop_grad = rnn_net.get_grad_vec()
+
+    def f(w):
+        rnn_net.clear_gradient()
+        rnn_net.set_param_from_vec(w)
+
+        h = rnn_net.forward_prop(x)
+        net.forward_prop(h, add_noise=False, compute_loss=True, is_test=False)
+        return net.get_loss()
+
+    fdiff_grad = finite_difference_gradient(f, rnn_net.get_param_vec())
+
+    test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
+            backprop_grad, '  Backpropagation Gradient')
+    print ''
+
+    return test_passed
+
+def test_all_rnn():
+    print ''
+    print '==================='
+    print 'Testing RNN'
+    print '==================='
+    print ''
+
+    n_success = 1 if test_rnn() else 0
+    n_success += 1 if test_rnn_io() else 0
+    n_tests = 2
+
+    print '=============='
+    print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)
+    print ''
+
+    return n_success, n_tests
+
 def run_all_tests():
     gnp.seed_rand(int(time.time()))
 
@@ -747,7 +819,7 @@ def run_all_tests():
 
     test_list = [test_all_nonlin, test_all_loss, test_all_layer,
             test_all_neuralnet, test_all_stacked_net, test_all_y_net, 
-            test_all_autoencoder]
+            test_all_autoencoder, test_all_rnn]
     for batch_test in test_list:
         success_in_batch, tests_in_batch = batch_test()
         n_success += success_in_batch

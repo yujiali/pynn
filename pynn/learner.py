@@ -249,7 +249,7 @@ class Learner(object):
             else:
                 s += '%.4f' % val_loss
         else:
-            s = 'train loss '
+            s += 'train loss '
             if self.best_obj is None or train_loss < self.best_obj:
                 self.best_obj = train_loss
                 self.best_w = w.copy()
@@ -509,9 +509,12 @@ class AutoEncoderPretrainer(object):
             base_enc = nn.NeuralNet(enc.in_dim, enc.layers[layer_idx].in_dim)
             for i in range(layer_idx):
                 base_enc.add_layer(enc.layers[i].out_dim, 
-                        nonlin_type=enc.layers[i].nonlin.get_name())
+                        nonlin_type=enc.layers[i].nonlin.get_name(),
+                        use_batch_normalization=enc.layers[i].use_batch_normalization)
                 base_enc.layers[i].params.set_param_from_vec(
                         enc.layers[i].params.get_param_vec())
+                if base_enc.layers[i].use_batch_normalization:
+                    base_enc.layers[i].bn_layer.params.set_param_from_vec(enc.layers[i].bn_layer.params.get_param_vec())
             x = base_enc.forward_prop(self.x, add_noise=False, compute_loss=False, is_test=True)
 
         enc_layer = enc.layers[layer_idx]
@@ -555,8 +558,14 @@ class AutoEncoderPretrainer(object):
 
         enc_layer.params.set_noiseless_param_from_vec(
                 single_layer_ae.encoder.layers[0].params.get_param_vec())
+        if enc_layer.use_batch_normalization:
+            enc_layer.bn_layer.params.set_param_from_vec(
+                    single_layer_ae.encoder.layers[0].bn_layer.params.get_param_vec())
         dec_layer.params.set_noiseless_param_from_vec(
                 single_layer_ae.decoder.layers[0].params.get_param_vec())
+        if dec_layer.use_batch_normalization:
+            dec_layer.bn_layer.params.set_param_from_vec(
+                    single_layer_ae.decoder.layers[0].bn_layer.params.get_param_vec())
 
     def pretrain_network(self, *args, **kwargs):
         for layer_idx in range(len(self.ae.encoder.layers)):

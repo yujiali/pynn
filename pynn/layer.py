@@ -70,6 +70,8 @@ class LayerParams(object):
             layer_params = LayerParams()
         elif type_code == 1:
             layer_params = BatchNormalizationLayerParams()
+        elif type_code == 2:
+            layer_params = MultiInputLayerParams()
         layer_params._load_from_stream(f)
         return layer_params
 
@@ -192,6 +194,88 @@ class BatchNormalizationLayerParams(LayerParams):
     def get_type_code(self):
         return 1
 
+class MultiInputLayerParams(object):
+    """
+    Parameters of a layer. Weight matrix shape is in_dim * out_dim.
+    """
+    def __init__(self, in_dim=[1], out_dim=1, init_scale=1.0, dropout=[0], init_bias=0):
+        self.n_inputs = len(in_dim)
+        self.W = [gnp.randn(in_dim[i], out_dim) * math.sqrt(float(init_scale) / in_dim[i]) for i in xrange(self.n_inputs)]
+        self.b = gnp.ones(out_dim) * init_bias
+
+        self.W_grad = [self.W[i] * 0 for i in xrange(self.n_inputs)]
+        self.b_grad = self.b * 0
+
+        self.param_size = sum([W.size for W in self.W]) + self.b.size
+        self.dropout = dropout if len(dropout) == self.n_inputs else dropout[:1] * self.n_inputs
+
+        # get an ID for this param variable.
+        self._param_id = LayerParams._param_count
+        LayerParams._param_count += 1
+
+    def clear_gradient(self):
+        for W in self.W:
+            W[:] = 0
+        self.b_grad[:] = 0
+
+    def add_gradient(self, *args):
+        for i in xrange(self.n_inputs):
+            self.W_grad[i] += args[i]
+        self.b_grad += args[-1]
+
+    def set_gradient(self, *args):
+        for i in xrange(self.n_inputs):
+            self.W_grad[i] = args[i]
+        self.b_grad = args[-1]
+
+    def get_param_vec(self):
+        return np.concatenate([W.asarray().ravel() for W in self.W] + [self.b.asarray().ravel()], axis=0)
+
+    def get_noiseless_param_vec(self):
+        return np.concatenate([(self.W[i] * (1 - self.dropout[i])).asarray().ravel() for i in xrange(self.n_inputs)] + [self.b.asarray().ravel()], axis=0)
+
+    def get_grad_vec(self):
+        return np.concatenate([W_grad.asarray().ravel() for W_grad in self.W_grad] + [self.b.asarray().ravel()], axis=0)
+
+    def set_param_from_vec(self, v):
+        i_start = 0
+        for i in xrange(self.n_inputs):
+            self.W[i][:] = v[i_start:i_start + self.W[i].size].reshape(self.W[i].shape)
+            i_start += self.W[i].size
+
+        self.b[:] = v[i_start:i_start + self.b.size].reshape(self.b.shape)
+
+    def set_noiseless_param_from_vec(self, v):
+        i_start = 0
+        for i in xrange(self.n_inputs):
+            self.W[i][:] = v[i_start:i_start + self.W[i].size].reshape(self.W[i].shape) / (1 - self.dropout[i])
+            i_start += self.W[i].size
+        self.b[:] = v[i_start:i_start + self.b.size].reshape(self.b.shape)
+
+    def _save_to_binary(self):
+        s = struct.pack('iii', self._param_id, self.n_inputs, self.W[0].shape[1])
+        for i in xrange(self.n_inputs):
+            s += struct.pack('i', self.W[i].shape[0])
+            s += self.W[i].asarray().astype(np.float32).tostring()
+        s += self.b.asarray().astype(np.float32).tostring()
+        return s
+
+    def _load_from_stream(self, f):
+        self._param_id, self.n_inputs, out_dim = struct.unpack('iii', f.read(3*4))
+        for i in xrange(self.n_inputs):
+            in_dim = struct.unpack('i', f.read(4))[0]
+            self.W[i] = gnp.garray(np.fromstring(f.read(in_dim * out_dim * 4),
+                dtype=np.float32).reshape(in_dim, out_dim))
+            self.W_grad[i] = self.W[i] * 0
+
+        self.b = gnp.garray(np.fromstring(f.read(out_dim * 4), dtype=np.float32))
+        self.b_grad = self.b * 0
+
+        self.param_size = sum([W.size for W in self.W]) + self.b.size
+
+    def get_type_code(self):
+        return 2
+
 class Layer(object):
     """
     One layer in a neural network.
@@ -199,9 +283,7 @@ class Layer(object):
     def __init__(self, in_dim=1, out_dim=1, nonlin_type=None, dropout=0,
             sparsity=0, sparsity_weight=0, init_scale=1, params=None,
             loss=None, loss_after_nonlin=False, init_bias=0, use_batch_normalization=False):
-        if nonlin_type is None:
-            nonlin_type = NONLIN_NAME_LINEAR
-        nonlin = get_nonlin_from_type_name(nonlin_type)
+        nonlin = get_nonlin_from_type_name(nonlin_type if nonlin_type is not None else NONLIN_NAME_LINEAR)
         self.build_layer(in_dim, out_dim, nonlin, dropout=dropout, 
                 sparsity=sparsity, sparsity_weight=sparsity_weight,
                 init_scale=init_scale, loss=loss, params=params,
@@ -298,7 +380,7 @@ class Layer(object):
             self.loss_computed = True
         
         return self.output
-
+ 
     def backward_prop(self, grad=None):
         """
         Compute the backward propagation step, with output gradient as input.
