@@ -65,7 +65,7 @@ def finite_difference_gradient(f, x):
 
     return grad
 
-def fdiff_grad_generator(net, x, t, add_noise=False, seed=None):
+def fdiff_grad_generator(net, x, t, add_noise=False, seed=None, **kwargs):
     if t is not None:
         net.load_target(t)
 
@@ -74,7 +74,7 @@ def fdiff_grad_generator(net, x, t, add_noise=False, seed=None):
             gnp.seed_rand(seed)
         w_0 = net.get_param_vec()
         net.set_param_from_vec(w)
-        net.forward_prop(x, add_noise=add_noise, compute_loss=True, is_test=False)
+        net.forward_prop(x, add_noise=add_noise, compute_loss=True, is_test=False, **kwargs)
         loss = net.get_loss()
         net.set_param_from_vec(w_0)
 
@@ -99,6 +99,7 @@ def test_net_io(f_create, f_create_void):
 
     test_passed = test_passed and test_vec_pair(net1.get_param_vec(), 'Net #1',
             net2.get_param_vec(), 'Net #2')
+    print ''
     return test_passed
 
 def test_nonlin(nonlin):
@@ -740,9 +741,9 @@ def test_all_autoencoder():
 
     return n_success, n_tests
 
-def test_rnn_io():
+def test_rnn_io(has_input=True):
     def f_create():
-        return rnn.RNN(3,3)
+        return rnn.RNN(in_dim=(3 if has_input else None),out_dim=3)
     def f_create_void():
         return rnn.RNN()
     return test_net_io(f_create, f_create_void)
@@ -794,6 +795,119 @@ def test_rnn():
 
     return test_passed
 
+def create_default_rnn_hybrid(add_noise=False, has_input=True):
+    in_dim = 3 if has_input else None
+    hid_dim = 2
+    out_dim = 2
+    net_hid_dim = 2
+
+    net = nn.NeuralNet(hid_dim, out_dim)
+    net.add_layer(net_hid_dim, nonlin_type=ly.NONLIN_NAME_TANH, dropout=(0 if not add_noise else 0.5))
+    net.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR)
+    net.set_loss(ls.LOSS_NAME_SQUARED)
+
+    rnn_net = rnn.RNN(in_dim, hid_dim)
+
+    if not has_input:
+        rnn_net.b = gnp.randn(hid_dim)
+    return rnn.RnnHybridNetwork(rnn_net, net)
+
+def test_rnn_hybrid(add_noise=False, has_input=True):
+    print 'Testing RNN hybrid, ' + ('with' if add_noise else 'without') + ' noise, ' \
+            + ('with' if has_input else 'without') + ' input'
+    n_cases = 5
+
+    net = create_default_rnn_hybrid(add_noise=add_noise, has_input=has_input)
+    print net
+
+    x = gnp.randn(n_cases, net.in_dim) if has_input else None
+    t = gnp.randn(n_cases, net.out_dim)
+
+    net.load_target(t)
+
+    seed = 8
+    gnp.seed_rand(seed)
+
+    net.clear_gradient()
+
+    """
+    if not has_input:
+        import ipdb
+        ipdb.set_trace()
+    """
+
+    net.forward_prop(X=x, T=n_cases, add_noise=add_noise, compute_loss=True, is_test=False)
+    net.backward_prop()
+
+    backprop_grad = net.get_grad_vec()
+
+    f = fdiff_grad_generator(net, x, None, add_noise=add_noise, seed=seed, T=n_cases)
+    fdiff_grad = finite_difference_gradient(f, net.get_param_vec())
+
+    test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
+            backprop_grad, '  Backpropagation Gradient')
+    print ''
+
+    gnp.seed_rand(int(time.time()))
+    return test_passed
+
+def test_rnn_hybrid_io(add_noise=False):
+    def f_create():
+        return create_default_rnn_hybrid(add_noise=add_noise)
+    def f_create_void():
+        return rnn.RnnHybridNetwork()
+    return test_net_io(f_create, f_create_void)
+
+def create_default_rnn_ae(add_noise=False):
+    in_dim = 3
+    hid_dim = 2
+    net_hid_dim = 2
+
+    net = nn.NeuralNet(hid_dim, in_dim)
+    net.add_layer(net_hid_dim, ly.NONLIN_NAME_TANH, dropout=(0.5 if add_noise else 0))
+    net.add_layer(0, ly.NONLIN_NAME_LINEAR)
+    net.set_loss(ls.LOSS_NAME_SQUARED)
+
+    dec = rnn.RnnHybridNetwork(rnn.RNN(out_dim=hid_dim), net)
+    enc = rnn.RNN(in_dim=in_dim, out_dim=hid_dim)
+
+    return rnn.RnnAutoEncoder(encoder=enc, decoder=dec)
+
+def test_rnn_ae(add_noise=False):
+    print 'Testing RnnAutoEncoder, ' + ('with' if add_noise else 'without') + ' noise'
+    n_cases = 5
+
+    net = create_default_rnn_ae(add_noise=add_noise)
+    print net
+
+    x = gnp.randn(n_cases, net.in_dim)
+
+    seed = 8
+    gnp.seed_rand(seed)
+
+    net.clear_gradient()
+    net.forward_prop(x, add_noise=add_noise, compute_loss=True, is_test=False)
+    net.backward_prop()
+
+    backprop_grad = net.get_grad_vec()
+
+    f = fdiff_grad_generator(net, x, None, add_noise=add_noise, seed=seed)
+    fdiff_grad = finite_difference_gradient(f, net.get_param_vec())
+
+    test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
+            backprop_grad, '  Backpropagation Gradient')
+    print ''
+
+    gnp.seed_rand(int(time.time()))
+    return test_passed
+
+def test_rnn_ae_io(add_noise=False):
+    def f_create():
+        return create_default_rnn_ae(add_noise=add_noise)
+    def f_create_void():
+        return rnn.RnnAutoEncoder()
+    return test_net_io(f_create, f_create_void)
+
 def test_all_rnn():
     print ''
     print '==================='
@@ -802,8 +916,19 @@ def test_all_rnn():
     print ''
 
     n_success = 1 if test_rnn() else 0
-    n_success += 1 if test_rnn_io() else 0
-    n_tests = 2
+    n_success += 1 if test_rnn_io(has_input=True) else 0
+    n_success += 1 if test_rnn_io(has_input=False) else 0
+    n_success += 1 if test_rnn_hybrid(add_noise=False, has_input=True) else 0
+    n_success += 1 if test_rnn_hybrid(add_noise=True, has_input=True) else 0
+    n_success += 1 if test_rnn_hybrid(add_noise=False, has_input=False) else 0
+    n_success += 1 if test_rnn_hybrid(add_noise=True, has_input=False) else 0
+    n_success += 1 if test_rnn_hybrid_io(add_noise=False) else 0
+    n_success += 1 if test_rnn_hybrid_io(add_noise=True) else 0
+    n_success += 1 if test_rnn_ae(add_noise=False) else 0
+    n_success += 1 if test_rnn_ae(add_noise=True) else 0
+    n_success += 1 if test_rnn_ae_io(add_noise=False) else 0
+    n_success += 1 if test_rnn_ae_io(add_noise=True) else 0
+    n_tests = 13
 
     print '=============='
     print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)
