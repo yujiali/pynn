@@ -257,7 +257,7 @@ class Learner(object):
             else:
                 s += '%.4f' % train_loss
 
-        self.net.load_target(self.t_train)
+        # self.net.load_target(self.t_train)
         self.net.set_param_from_vec(w_0)
         
         return s

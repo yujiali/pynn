@@ -6,8 +6,9 @@ TODO: this is not a complete implementation.
 Yujia Li, 05/2015
 """
 
-import layer
 import nn
+import layer
+import learner
 import numpy as np
 import gnumpy as gnp
 import math
@@ -181,9 +182,9 @@ class RNN(nn.BaseNeuralNet):
 
     def __repr__(self):
         if self.has_input:
-            return 'rnn %d -> %d' % (self.in_dim, self.out_dim)
+            return 'rnn %d -> %d (%s)' % (self.in_dim, self.out_dim, self.nonlin.get_name())
         else:
-            return 'rnn <no input> %d' % self.out_dim
+            return 'rnn <no input> %d (%s)' % (self.out_dim, self.nonlin.get_name())
 
     def _update_param_size(self):
         self.param_size = self.W_hh.size + self.b.size
@@ -372,5 +373,79 @@ class RnnAutoEncoder(nn.BaseNeuralNet):
     def _update_param_size(self):
         self.param_size = self.encoder.param_size + self.decoder.param_size
 
+class SequenceLearner(learner.Learner):
+    """
+    RNN trainers.
+    """
+    def load_data(self, x_train, t_train, x_val=None, t_val=None):
+        x_train = np.array([gnp.as_garray(x) for x in x_train], dtype=np.object)
+        t_train = np.array([gnp.as_garray(t) for t in t_train], dtype=np.object)
+        if x_val is not None and t_val is not None:
+            x_val = np.array([gnp.as_garray(x) for x in x_val], dtype=np.object)
+            t_val = np.array([gnp.as_garray(t) for t in t_val], dtype=np.object)
+
+        super(SequenceLearner, self).load_data(x_train, t_train, x_val=x_val, t_val=t_val)
+
+    def load_train_target(self):
+        pass
+
+    def f_and_fprime(self, w):
+        self.net.set_param_from_vec(w)
+        self.net.clear_gradient()
+        loss = 0
+        grad = None
+        n_total = 0
+        for i in xrange(self.x_train.shape[0]):
+            self.net.load_target(self.t_train[i])
+            self.net.forward_prop(self.x_train[i], add_noise=True, compute_loss=True, is_test=False)
+            loss += self.net.get_loss()
+            self.net.backward_prop()
+            if grad is None:
+                grad = self.net.get_grad_vec()
+            else:
+                grad += self.net.get_grad_vec()
+            n_total += self.x_train[i].shape[0]
+        return loss / n_total, grad / n_total
+
+    def f_and_fprime_minibatch(self, w):
+        x, t = self.minibatch_generator.next()
+
+        self.net.set_param_from_vec(w)
+        self.net.clear_gradient()
+
+        loss = 0
+        grad = None
+        n_total = 0
+
+        for i in xrange(x.shape[0]):
+            self.net.load_target(t[i])
+            self.net.forward_prop(x[i], add_noise=True, compute_loss=True, is_test=False)
+            loss += self.net.get_loss()
+            self.net.backward_prop()
+            if grad is None:
+                grad = self.net.get_grad_vec()
+            else:
+                grad += self.net.get_grad_vec()
+
+            n_total += x[i].shape[0]
+
+        return loss / n_total, grad / n_total
+
+    def evaluate_loss_large_set(self, x, t, batch_size=1000):
+        """
+        A function used to evaluate loss on a large set of data. A direct call
+        to forward_prop may blow up the memory, so this function does it in 
+        smaller batches.
+
+        This function will change the target loaded with the network. Return
+        the average loss across examples for this set.
+        """
+        n_cases = x.shape[0]
+        loss = 0
+        for i in xrange(n_cases):
+            self.net.load_target(t[i])
+            self.net.forward_prop(x[i], add_noise=False, compute_loss=True, is_test=True)
+            loss += self.net.get_loss()
+        return loss / n_cases
 
 

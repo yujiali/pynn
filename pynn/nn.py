@@ -42,6 +42,13 @@ class BaseNeuralNet(object):
         """
         raise NotImplementedError()
 
+    def forward_prop_setup_bn_mean_std_on_big_set(self, X, **kwargs):
+        """
+        Special for networks that use batch-normalization, but otherwise has no
+        effect.
+        """
+        pass
+
     def load_target(self, *args, **kwargs):
         """
         Load targets used in the losses.
