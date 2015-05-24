@@ -908,6 +908,63 @@ def test_rnn_ae_io(add_noise=False):
         return rnn.RnnAutoEncoder()
     return test_net_io(f_create, f_create_void)
 
+def create_default_rnn_on_nn(add_noise=False):
+    in_dim = 3
+    net_hid_dim = 2
+    rnn_in_dim = 2
+    hid_dim = 2
+    out_dim = 3
+
+    net = nn.NeuralNet(in_dim, hid_dim)
+    net.add_layer(net_hid_dim, nonlin_type=ly.NONLIN_NAME_TANH, dropout=(0.5 if add_noise else 0))
+    net.add_layer(0, nonlin_type=ly.NONLIN_NAME_SIGMOID)
+
+    rnn_net = rnn.RnnOnNeuralNet(net, rnn.RNN(in_dim=rnn_in_dim, out_dim=hid_dim, nonlin_type=ly.NONLIN_NAME_TANH))
+    
+    predict_net = nn.NeuralNet(hid_dim, out_dim)
+    predict_net.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR)
+    predict_net.set_loss(ls.LOSS_NAME_SQUARED)
+
+    rnn_predict_net = rnn.RnnHybridNetwork(rnn_net, predict_net)
+    return rnn_predict_net
+
+def test_rnn_on_nn(add_noise=False):
+    print 'Testing RnnOnNeuralNet, ' + ('with' if add_noise else 'without') + ' noise'
+    n_cases = 5
+
+    net = create_default_rnn_on_nn(add_noise=add_noise)
+    print net
+
+    x = gnp.randn(n_cases, net.in_dim)
+    t = gnp.randn(n_cases, net.out_dim)
+
+    seed = 8
+    gnp.seed_rand(seed)
+
+    net.load_target(t)
+    net.clear_gradient()
+    net.forward_prop(x, add_noise=add_noise, compute_loss=True, is_test=False)
+    net.backward_prop()
+
+    backprop_grad = net.get_grad_vec()
+
+    f = fdiff_grad_generator(net, x, None, add_noise=add_noise, seed=seed)
+    fdiff_grad = finite_difference_gradient(f, net.get_param_vec())
+
+    test_passed = test_vec_pair(fdiff_grad, 'Finite Difference Gradient',
+            backprop_grad, '  Backpropagation Gradient')
+    print ''
+
+    gnp.seed_rand(int(time.time()))
+    return test_passed
+
+def test_rnn_on_nn_io(add_noise=False):
+    def f_create():
+        return create_default_rnn_on_nn(add_noise=add_noise).rnn
+    def f_create_void():
+        return rnn.RnnOnNeuralNet()
+    return test_net_io(f_create, f_create_void)
+
 def test_all_rnn():
     print ''
     print '==================='
@@ -928,7 +985,11 @@ def test_all_rnn():
     n_success += 1 if test_rnn_ae(add_noise=True) else 0
     n_success += 1 if test_rnn_ae_io(add_noise=False) else 0
     n_success += 1 if test_rnn_ae_io(add_noise=True) else 0
-    n_tests = 13
+    n_success += 1 if test_rnn_on_nn(add_noise=False) else 0
+    n_success += 1 if test_rnn_on_nn(add_noise=True) else 0
+    n_success += 1 if test_rnn_on_nn_io(add_noise=False) else 0
+    n_success += 1 if test_rnn_on_nn_io(add_noise=True) else 0
+    n_tests = 17
 
     print '=============='
     print 'Test finished: %d/%d success, %d failed' % (n_success, n_tests, n_tests - n_success)

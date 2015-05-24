@@ -54,6 +54,9 @@ def generate_binary_add_data(n, int_max=100):
     return x, t
 
 def train_rnn_binary_add():
+    print ''
+    print 'Training RNN for binary add'
+    print ''
     x_train, t_train = generate_binary_add_data(50, int_max=100)
     x_val, t_val = generate_binary_add_data(20, int_max=200)
 
@@ -75,7 +78,7 @@ def train_rnn_binary_add():
     # rnn_learner.train_gradient_descent(learn_rate=1e-2, momentum=0.5, iprint=10, max_iters=200, max_grad_norm=10)
     # rnn_learner.train_gradient_descent(learn_rate=1e-3, momentum=0.9, iprint=10, max_iters=200)
     # rnn_learner.train_gradient_descent(learn_rate=1e-2, momentum=0, iprint=10, max_iters=200, adagrad_start_iter=10)
-    rnn_learner.train_sgd(minibatch_size=1, learn_rate=1e-1, momentum=0.9, iprint=100, adagrad_start_iter=1, max_iters=10000, max_grad_norm=1)
+    rnn_learner.train_sgd(minibatch_size=1, learn_rate=1e-1, momentum=0.9, iprint=100, adagrad_start_iter=1, max_iters=2000, max_grad_norm=1)
 
     return rnn_net
 
@@ -89,13 +92,16 @@ def revert_sequence(x):
     return new_x
 
 def train_rnn_ae():
+    print ''
+    print 'Training RNN autoencoder'
+    print ''
     x_train, _ = generate_binary_add_data(50, int_max=64)
     x_val, _ = generate_binary_add_data(20, int_max=64)
 
     in_dim = x_train[0].shape[1]
     out_dim = in_dim
 
-    hid_dim = 10
+    hid_dim = 20
 
     net = nn.NeuralNet(hid_dim, out_dim)
     net.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR)
@@ -118,4 +124,46 @@ def train_rnn_ae():
 
     return ae
 
+def train_rnn_on_nn_ae():
+    print ''
+    print 'Training RNN autoencoder'
+    print ''
+    x_train, _ = generate_binary_add_data(50, int_max=64)
+    x_val, _ = generate_binary_add_data(20, int_max=64)
 
+    in_dim = x_train[0].shape[1]
+    out_dim = in_dim
+
+    hid_dim = 10
+    out_hid_dim = 5
+    in_hid_dim = 5
+
+    net = nn.NeuralNet(hid_dim, out_dim)
+    net.add_layer(out_hid_dim, nonlin_type=ly.NONLIN_NAME_RELU)
+    net.add_layer(0, nonlin_type=ly.NONLIN_NAME_LINEAR)
+    net.set_loss(ls.LOSS_NAME_SQUARED)
+
+    dec = rnn.RnnHybridNetwork(rnn.RNN(out_dim=hid_dim, nonlin_type=ly.NONLIN_NAME_RELU), net)
+
+    enc_net = nn.NeuralNet(in_dim, in_hid_dim)
+    enc_net.add_layer(0, nonlin_type=ly.NONLIN_NAME_RELU)
+
+    enc = rnn.RnnOnNeuralNet(enc_net, rnn.RNN(in_dim=in_hid_dim, out_dim=hid_dim, nonlin_type=ly.NONLIN_NAME_RELU))
+
+    ae = rnn.RnnAutoEncoder(encoder=enc, decoder=dec)
+
+    print ae
+
+    rnn_learner = rnn.SequenceLearner(ae)
+    # rnn_learner.load_data(x_train, revert_sequence(x_train), x_val=x_val, t_val=revert_sequence(x_val))
+    rnn_learner.load_data(x_train, x_train, x_val=x_val, t_val=x_val)
+    # rnn_learner.train_gradient_descent(learn_rate=1e-2, momentum=0.5, iprint=10, max_iters=200, max_grad_norm=10)
+    # rnn_learner.train_gradient_descent(learn_rate=1e-3, momentum=0.9, iprint=10, max_iters=200)
+    # rnn_learner.train_gradient_descent(learn_rate=1e-2, momentum=0, iprint=10, max_iters=200, adagrad_start_iter=10)
+    rnn_learner.train_sgd(minibatch_size=1, learn_rate=1e-1, momentum=0.9, iprint=100, adagrad_start_iter=1, max_iters=10000, max_grad_norm=1)
+
+    return ae
+
+if __name__ == '__main__':
+    train_rnn_binary_add()
+    train_rnn_ae()

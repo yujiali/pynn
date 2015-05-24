@@ -144,8 +144,10 @@ class RNN(nn.BaseNeuralNet):
             return np.r_[self.dW_hh.asarray().ravel(), self.db.asarray().ravel()]
 
     def save_model_to_binary(self):
-        s = struct.pack('i', self.get_type_code())
-        s += struct.pack('iiii', (1 if self.has_input else 0), (self.in_dim if self.has_input else 0),
+        return struct.pack('i', self.get_type_code()) + self._save_model_to_binary()
+
+    def _save_model_to_binary(self):
+        s = struct.pack('iiii', (1 if self.has_input else 0), (self.in_dim if self.has_input else 0),
                 self.out_dim, self.nonlin.get_id())
         if self.has_input:
             s += self.W_ih.asarray().astype(np.float32).tostring()
@@ -155,7 +157,9 @@ class RNN(nn.BaseNeuralNet):
 
     def load_model_from_stream(self, f):
         self.check_type_code(struct.unpack('i', f.read(4))[0])
+        self._load_model_from_stream(f)
 
+    def _load_model_from_stream(self, f):
         has_input, self.in_dim, self.out_dim, nonlin_id = struct.unpack('iiii', f.read(4*4))
         self.has_input = has_input == 1
         if not self.has_input:
@@ -177,7 +181,8 @@ class RNN(nn.BaseNeuralNet):
 
         self._update_param_size()
 
-    def get_type_code(self):
+    @staticmethod
+    def get_type_code():
         return 0x0399
 
     def __repr__(self):
@@ -255,16 +260,19 @@ class RnnHybridNetwork(nn.BaseNeuralNet):
         return np.r_[self.rnn.get_grad_vec(), self.feedforward_net.get_grad_vec()]
 
     def save_model_to_binary(self):
-        s = struct.pack('i', self.get_type_code())
-        s += self.rnn.save_model_to_binary()
+        return struct.pack('i', self.get_type_code()) + self._save_model_to_binary()
+
+    def _save_model_to_binary(self):
+        s = self.rnn.save_model_to_binary()
         s += self.feedforward_net.save_model_to_binary()
         return s
 
     def load_model_from_stream(self, f):
         self.check_type_code(struct.unpack('i', f.read(4))[0])
+        self._load_model_from_stream(f)
 
-        self.rnn = RNN()
-        self.rnn.load_model_from_stream(f)
+    def _load_model_from_stream(self, f):
+        self.rnn = load_rnn_from_stream(f)
 
         self.feedforward_net = nn.NeuralNet()
         self.feedforward_net.load_model_from_stream(f)
@@ -274,14 +282,100 @@ class RnnHybridNetwork(nn.BaseNeuralNet):
         self.in_dim = self.rnn.in_dim
         self.out_dim = self.feedforward_net.out_dim
 
-    def get_type_code(self):
+    @staticmethod
+    def get_type_code():
         return 0x0369
 
     def __repr__(self):
-        return str(self.rnn) + ' | ' + str(self.feedforward_net)
+        return str(self.rnn) + ' >---< ' + str(self.feedforward_net)
 
     def _update_param_size(self):
         self.param_size = self.rnn.param_size + self.feedforward_net.param_size
+
+class RnnOnNeuralNet(nn.BaseNeuralNet):
+    """
+    RNN at the very top, with input passed through a feedforward neural net
+    before feeding into the RNN.
+    """
+    def __init__(self, net=None, rnn=None):
+        if net is None or rnn is None:
+            return
+
+        assert net.out_dim == rnn.in_dim
+
+        self.net = net
+        self.rnn = rnn
+
+        self._update_param_size()
+
+        self.in_dim = self.net.in_dim
+        self.out_dim = self.rnn.out_dim
+
+    def forward_prop(self, X, T=None, h_init=None, **kwargs):
+        """
+        options:
+        - an extra h_init can be given to the forward prop to feed into the
+          first hidden state activation.
+        - T is ignored here
+        """
+        X_in = self.net.forward_prop(X, **kwargs)
+        return self.rnn.forward_prop(X=X_in, h_init=h_init)
+
+    def backward_prop(self, grad=None, grad_end=None):
+        dX_in = self.rnn.backward_prop(grad=grad, grad_end=grad_end)
+        return self.net.backward_prop(grad=dX_in)
+
+    def get_h_init_grad(self):
+        return self.rnn.get_h_init_grad()
+
+    def clear_gradient(self):
+        self.net.clear_gradient()
+        self.rnn.clear_gradient()
+
+    def get_param_vec(self):
+        return np.r_[self.net.get_param_vec(), self.rnn.get_param_vec()]
+
+    def get_noiseless_param_vec(self):
+        return np.r_[self.net.get_noiseless_param_vec(), self.rnn.get_noiseless_param_vec()]
+
+    def _set_param_from_vec(self, v, is_noiseless=False):
+        self.net._set_param_from_vec(v[:self.net.param_size], is_noiseless=is_noiseless)
+        self.rnn._set_param_from_vec(v[self.net.param_size:], is_noiseless=is_noiseless)
+
+    def get_grad_vec(self):
+        return np.r_[self.net.get_grad_vec(), self.rnn.get_grad_vec()]
+
+    def save_model_to_binary(self):
+        return struct.pack('i', self.get_type_code()) + self._save_model_to_binary()
+
+    def _save_model_to_binary(self):
+        s = self.net.save_model_to_binary()
+        s += self.rnn.save_model_to_binary()
+        return s
+
+    def load_model_from_stream(self, f):
+        self.check_type_code(struct.unpack('i', f.read(4))[0])
+        self._load_model_from_stream(f)
+
+    def _load_model_from_stream(self, f):
+        self.net = nn.NeuralNet()
+        self.net.load_model_from_stream(f)
+        self.rnn = load_rnn_from_stream(f)
+
+        self._update_param_size()
+
+        self.in_dim = self.net.in_dim
+        self.out_dim = self.rnn.out_dim
+
+    @staticmethod
+    def get_type_code():
+        return 0x0301
+
+    def __repr__(self):
+        return str(self.net) + ' >---< ' + str(self.rnn)
+
+    def _update_param_size(self):
+        self.param_size = self.net.param_size + self.rnn.param_size
 
 class RnnAutoEncoder(nn.BaseNeuralNet):
     """
@@ -345,26 +439,28 @@ class RnnAutoEncoder(nn.BaseNeuralNet):
         return np.r_[self.encoder.get_grad_vec(), self.decoder.get_grad_vec()]
 
     def save_model_to_binary(self):
-        s = struct.pack('i', self.get_type_code())
-        s += self.encoder.save_model_to_binary()
+        return struct.pack('i', self.get_type_code()) + self._save_model_to_binary()
+
+    def _save_model_to_binary(self):
+        s = self.encoder.save_model_to_binary()
         s += self.decoder.save_model_to_binary()
         return s
 
     def load_model_from_stream(self, f):
         self.check_type_code(struct.unpack('i', f.read(4))[0])
+        self._load_model_from_stream(f)
 
-        self.encoder = RNN()
-        self.encoder.load_model_from_stream(f)
-
-        self.decoder = RnnHybridNetwork()
-        self.decoder.load_model_from_stream(f)
+    def _load_model_from_stream(self, f):
+        self.encoder = load_rnn_from_stream(f)
+        self.decoder = load_rnn_from_stream(f)
 
         self._update_param_size()
 
         self.in_dim = self.encoder.in_dim
         self.out_dim = self.decoder.out_dim
 
-    def get_type_code(self):
+    @staticmethod
+    def get_type_code():
         return 0x0363
 
     def __repr__(self):
@@ -448,4 +544,17 @@ class SequenceLearner(learner.Learner):
             loss += self.net.get_loss()
         return loss / n_cases
 
+def load_rnn_from_stream(f):
+    type_code = struct.unpack('i', f.read(4))[0]
+    if type_code == RNN.get_type_code():
+        net = RNN()
+    elif type_code == RnnOnNeuralNet.get_type_code():
+        net = RnnOnNeuralNet()
+    elif type_code == RnnHybridNetwork.get_type_code():
+        net = RnnHybridNetwork()
+    else:
+        raise Exception('Type code %d not recognized.' % type_code)
+
+    net._load_model_from_stream(f)
+    return net
 
