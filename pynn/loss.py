@@ -5,6 +5,7 @@ Yujia Li, 09/2014
 """
 
 import gnumpy as gnp
+import math
 
 _SMALL_CONSTANT = 1e-20
 
@@ -312,6 +313,21 @@ class L2HingeLoss(Loss):
         return 7
 
 register_loss(L2HingeLoss())
+
+class NormLoss(SquaredLoss):
+    def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
+        loss, grad = super(NormLoss, self).compute_not_weighted_loss_and_grad(pred, compute_grad=compute_grad)
+        sqrt_loss = math.sqrt(loss)
+        return sqrt_loss, grad / (2 * sqrt_loss)
+        # return loss, grad
+
+    def get_name(self):
+        return 'norm'
+
+    def get_id(self):
+        return 8
+
+register_loss(NormLoss())
 
 LOSS_LIST = _loss_manager.get_loss_list()
 

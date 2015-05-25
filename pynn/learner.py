@@ -532,10 +532,13 @@ class AutoEncoderPretrainer(object):
                 sparsity_weight=dec_layer.sparsity_weight,
                 use_batch_normalization=dec_layer.use_batch_normalization)
 
-        if dec_layer.nonlin.get_name() == ly.NONLIN_NAME_SIGMOID:
-            single_layer_dec.set_loss(ls.LOSS_NAME_BINARY_CROSSENTROPY, loss_weight=1)
+        if dec_layer.loss is not None:
+            single_layer_dec.set_loss(dec_layer.loss.get_name(), loss_weight=dec_layer.loss.weight)
         else:
-            single_layer_dec.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=1)
+            if dec_layer.nonlin.get_name() == ly.NONLIN_NAME_SIGMOID:
+                single_layer_dec.set_loss(ls.LOSS_NAME_BINARY_CROSSENTROPY, loss_weight=1)
+            else:
+                single_layer_dec.set_loss(ls.LOSS_NAME_SQUARED, loss_weight=1)
 
         single_layer_ae = nn.AutoEncoder(single_layer_enc, single_layer_dec)
 
