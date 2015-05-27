@@ -4,16 +4,41 @@ Data preprocessors.
 Yujia Li, 05/2015
 """
 
+import gnumpy as gnp
 import numpy as np
 import scipy.linalg as la
 import struct
 _SMALL_CONSTANT = 1e-8
+
+def choose_preprocessor_by_name(prep_name, *args, **kwargs):
+    if prep_name == 'blank':
+        return BlankPreprocessor(*args, **kwargs)
+    elif prep_name == 'mean_std':
+        return MeanStdPreprocessor(*args, **kwargs)
+    elif prep_name == 'std_norm':
+        return StdNormPreprocessor(*args, **kwargs)
+    elif prep_name == 'whitening':
+        return WhiteningPreprocessor(*args, **kwargs)
+    elif prep_name == 'pca':
+        return PCAPreprocessor(*args, **kwargs)
+    else:
+        raise Exception('Preprocessor name "%s" not recognized.' % prep_name)
 
 class Preprocessor(object):
     """Base class for preprocessors."""
     def __init__(self, x=None, prev=None, **kwargs):
         """Construct preprocessor.  Can use some data x, or chained with
         another preprocessor."""
+        self.prev = prev
+        if x is None:
+            return
+        else:
+            self.train(x)
+
+    def train(self, x):
+        """
+        This learns the parameters of the preprocessor from data.
+        """
         pass
 
     def process(self, x):
@@ -70,7 +95,7 @@ class Preprocessor(object):
 
 class BlankPreprocessor(Preprocessor):
     """Do nothing."""
-    def __init__(self):
+    def train(self, x):
         pass
 
     def process(self, x):
@@ -91,13 +116,9 @@ class BlankPreprocessor(Preprocessor):
 
 class MeanStdPreprocessor(Preprocessor):
     """Subtract mean and normalize by standard deviation preprocessor."""
-    def __init__(self, x=None, prev=None):
-        if x is None:
-            return
-
-        self.prev = prev
-        if prev:
-            x = prev.process(x)
+    def train(self, x):
+        if self.prev:
+            x = self.prev.process(x)
         self.avg = x.mean(axis=0)
         self.std = x.std(axis=0) + _SMALL_CONSTANT
 
@@ -142,12 +163,9 @@ class MeanStdPreprocessor(Preprocessor):
 
 class StdNormPreprocessor(Preprocessor):
     """Normalize the features using standard deviation."""
-    def __init__(self, x=None, prev=None):
-        if x is None:
-            return
-        self.prev = prev
-        if prev:
-            x = prev.process(x)
+    def train(self, x):
+        if self.prev:
+            x = self.prev.process(x)
         self.std = x.std(axis=0) + _SMALL_CONSTANT
 
     def process(self, x):
@@ -189,24 +207,26 @@ class StdNormPreprocessor(Preprocessor):
 
 class WhiteningPreprocessor(Preprocessor):
     """Whitening - decorrelate covariance."""
-    def __init__(self, x=None, prev=None):
-        if x is None:
-            return
-        self.prev = prev
-        if prev:
-            x = prev.process(x)
+    def train(self, x):
+        if self.prev:
+            x = self.prev.process(x)
+        x = gnp.as_garray(x)
         self.avg = x.mean(axis=0)
         cov = (x - self.avg).T.dot(x - self.avg) / x.shape[0]
-        self.sqrcov = la.sqrtm(cov).real
-        self.m = la.inv(self.sqrcov + np.eye(x.shape[1]) * _SMALL_CONSTANT)
+        cov = gnp.as_numpy_array(cov)
+        self.sqrcov = la.cholesky(cov + np.eye(cov.shape[0]) * 1e-5)
+        self.m = gnp.as_garray(la.inv(self.sqrcov + np.eye(x.shape[1]) * 1e-5))
 
     def process(self, x):
         if self.prev:
             x = self.prev.process(x)
+        x = gnp.as_garray(x)
         return (x - self.avg).dot(self.m)
 
     def reverse(self, processed_x):
-        x = processed_x.dot(self.sqrcov) + self.avg
+        processed_x = gnp.as_garray(processed_x)
+        sqrcov = gnp.as_garray(self.sqrcov)
+        x = processed_x.dot(sqrcov) + self.avg
         if self.prev:
             return self.prev.reverse(x)
         else:
@@ -225,8 +245,8 @@ class WhiteningPreprocessor(Preprocessor):
             s += struct.pack('i', 0)
 
         s += struct.pack('i', self.avg.size)
-        s += self.avg.astype(np.float32).tostring()
-        s += self.m.astype(np.float32).ravel().tostring()
+        s += self.avg.asarray().astype(np.float32).tostring()
+        s += self.m.asarray().astype(np.float32).ravel().tostring()
         return s
 
     def _load_from_stream(self, f):
@@ -236,8 +256,8 @@ class WhiteningPreprocessor(Preprocessor):
             self.prev = None
 
         D = struct.unpack('i', f.read(4))[0]
-        self.avg = np.fromstring(f.read(4*D), dtype=np.float32)
-        self.m = np.fromstring(f.read(4*D*D), dtype=np.float32).reshape(D,D)
+        self.avg = gnp.garray(np.fromstring(f.read(4*D), dtype=np.float32))
+        self.m = gnp.garray(np.fromstring(f.read(4*D*D), dtype=np.float32).reshape(D,D))
 
 def pca(x, K):
     """(x, K) --> (xnew, basis, xmean)
@@ -290,14 +310,20 @@ def pca_reconstruction(x, basis, xmean=None):
 class PCAPreprocessor(Preprocessor):
     """PCA"""
     def __init__(self, x=None, prev=None, K=None):
+        self.prev = prev
+        self.K = K
+
         if x is None:
             return
-        self.prev = prev
-        if prev:
-            x = prev.process(x)
-        if K == None:
-            K = x.shape[1] / 2 + 1
-        _, self.basis, self.avg = pca(x, K)
+        else:
+            self.train(x)
+
+    def train(self, x):
+        if self.prev:
+            x = self.prev.process(x)
+        if self.K == None:
+            self.K = x.shape[1] / 2 + 1
+        _, self.basis, self.avg = pca(x, self.K)
 
     def process(self, x):
         if self.prev:

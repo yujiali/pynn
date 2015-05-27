@@ -96,6 +96,8 @@ def kmeans(X, K, init='plus', dist='euclidean', empty_action='singleton', max_it
         loss: sum of distances for the dataset under the given distance metric.
     """
     t_start = time.time()
+    gnp.free_reuse_cache()
+    gnp.max_memory_usage = 3 * 1000 * 1000 * 1000
 
     def f_print(s, newline=True):
         if verbose:
@@ -108,6 +110,7 @@ def kmeans(X, K, init='plus', dist='euclidean', empty_action='singleton', max_it
 
     f_print('Initializing k-means...', newline=False)
     X = gnp.as_garray(X)
+    X_cpu = X.asarray().astype(np.float64)
     
     if isinstance(init, str):
         f_init = choose_initializer(init)
@@ -128,8 +131,12 @@ def kmeans(X, K, init='plus', dist='euclidean', empty_action='singleton', max_it
     t_start = time.time()
     i_iter = 0
     while i_iter <= max_iters:
+        gnp.free_reuse_cache()
         f_print('iter %d,' % i_iter, newline=False)
-        D = f_dist(X, C)
+        
+        # use GPU to compute distance because it is fast,
+        # bug go back to CPU to avoid low precision problem
+        D = f_dist(X, C).asarray().astype(np.float64)
         idx = D.argmin(axis=1)
         loss = D[full_idx, idx].sum()
 
@@ -147,7 +154,7 @@ def kmeans(X, K, init='plus', dist='euclidean', empty_action='singleton', max_it
                 else:
                     raise Exception('Action not specified for empty cluster.')
             else:
-                C[k] = X[k_idx].mean(axis=0)
+                C[k] = X_cpu[k_idx].mean(axis=0)
 
         f_print('loss=%.2f, [%.2fs]' % (loss, t_start - time.time()))
 
