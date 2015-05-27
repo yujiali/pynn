@@ -124,9 +124,10 @@ def kmeans(X, K, init='plus', dist='euclidean', empty_action='singleton', max_it
 
     loss = 0
     idx = None
+    prev_idx = None
 
     full_idx = np.arange(X.shape[0])
-    f_print('done [%.2fs]' % (t_start - time.time()))
+    f_print('done [%.2fs]' % (time.time()) - t_start)
 
     t_start = time.time()
     i_iter = 0
@@ -139,6 +140,12 @@ def kmeans(X, K, init='plus', dist='euclidean', empty_action='singleton', max_it
         D = f_dist(X, C).asarray().astype(np.float64)
         idx = D.argmin(axis=1)
         loss = D[full_idx, idx].sum()
+
+        if prev_idx is not None and (idx == prev_idx).all():
+            print '** k-means converged **'
+            break
+        else:
+            prev_idx = idx
 
         # update cluster center
         do_restart = False
@@ -156,7 +163,7 @@ def kmeans(X, K, init='plus', dist='euclidean', empty_action='singleton', max_it
             else:
                 C[k] = X_cpu[k_idx].mean(axis=0)
 
-        f_print('loss=%.2f, [%.2fs]' % (loss, t_start - time.time()))
+        f_print('loss=%.2f, [%.2fs]' % (loss, time.time() - t_start))
 
         if do_restart:
             print '[Warning] restarting because empty clusters encountered.'

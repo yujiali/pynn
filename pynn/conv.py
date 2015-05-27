@@ -17,13 +17,19 @@ class ConvShape(object):
     This explains how the data is stored.  Each image is assumed to be stored
     first by channel, in each channel pixels organized in row-major order.
     """
-    def __init__(self, height, width, channels):
+    def __init__(self, height=0, width=0, channels=0):
         self.h = height
         self.w = width
         self.c = channels
 
     def size(self):
         return self.h * self.w * self.c
+
+    def save_to_binary(self):
+        return struct.pack('iii', self.h, self.w, self.c)
+
+    def load_from_stream(self, f):
+        self.h, self.w, self.c = struct.unpack('iii', f.read(3*4))
 
     def __repr__(self):
         return '<ConvShape h=%d, w=%d, c=%d, size=%d>' % (self.h, self.w, self.c, self.size())
@@ -137,6 +143,8 @@ class FixedConvolutionalLayer(object):
         type_code = struct.unpack('i', f.read(4))[0]
         if type_code == KMeansLayer.get_type_code():
             layer = KMeansLayer()
+        elif type_code == TriangleKMeansLayer.get_type_code():
+            layer = TriangleKMeansLayer()
         else:
             raise Exception('Type code "%d" not recognized.' % type_code)
         layer._load_model_from_stream(f)
@@ -155,6 +163,14 @@ class FixedConvolutionalLayer(object):
     @staticmethod
     def get_type_code():
         raise NotImplementedError()
+
+    @staticmethod
+    def get_type_name():
+        raise NotImplementedError()
+
+    def __repr__(self):
+        return '%s %d-%dx%dx%d' % (self.get_type_name(), self.n_oc, self.ksize, self.ksize, self.n_ic)
+
 
 class KMeansLayer(FixedConvolutionalLayer):
     def __init__(self, kmeans_model, stride=2):
@@ -193,9 +209,14 @@ class KMeansLayer(FixedConvolutionalLayer):
     def get_type_code():
         return 0
 
+    @staticmethod
+    def get_type_name():
+        return 'kmeans'
+
     def compute_patch_responses(self, patches):
         if self.prep is not None:
             patches = self.prep.process(patches)
+        patches = gnp.as_garray(patches)
         D = self.f_dist(patches, self.C).asarray().astype(np.float64)
         idx = D.argmin(axis=1)
         R = np.zeros((patches.shape[0], self.n_oc), dtype=np.float32)
@@ -216,9 +237,14 @@ class TriangleKMeansLayer(KMeansLayer):
     def get_type_code():
         return 1
 
+    @staticmethod
+    def get_type_name():
+        return 'triangle-kmeans'
+
     def compute_patch_responses(self, patches):
         if self.prep is not None:
             patches = self.prep.process(patches)
+        patches = gnp.as_garray(patches)
         D = self.f_dist(patches, self.C).asarray().astype(np.float64)
         d_avg = D.mean(axis=0)
         R = (d_avg.reshape(1,-1) - D)
@@ -266,13 +292,104 @@ def get_random_patches(X, in_shape, ksize, n_patches_per_image, batch_size=100):
 
     return np.concatenate(patches, axis=0).reshape(-1, in_shape.c*ksize*ksize)
 
-def train_kmeans_layer(X, K, in_shape, ksize, n_patches_per_image, prep_type=None, **kwargs):
+def train_kmeans_layer(X, in_shape, K, ksize, n_patches_per_image, prep_type=None, **kwargs):
     train_data = get_random_patches(X, in_shape, ksize, n_patches_per_image)
-    if prep is not None:
+    if prep_type is not None:
         prep = pp.choose_preprocessor_by_name(prep_type)
         prep.train(train_data)
         train_data = prep.process(prep)
+    else:
+        prep = None
     gnp.free_reuse_cache()
     C, _, _ = clust.kmeans(train_data, K, **kwargs) 
     return KMeansModel(C, kwargs.get('dist', 'euclidean'), in_shape.c, ksize, prep)
+
+class FixedConvolutionalNetwork(object):
+    """
+    Multiple fixed convolutional layers stacked on top of each other.
+    """
+    def __init__(self, layers=[]):
+        self.layers = layers
+
+    def forward_prop(self, X, data_shape):
+        for l in self.layers:
+            X, data_shape = l.forward_prop(X, data_shape)
+        return X, data_shape
+    
+    def recover_input(self, Y, out_shape, in_shape):
+        """
+        If in_shapes is None, this will try to use the in_shapes from a
+        previous forward prop.
+        """
+        in_shapes = []
+        for l in self.layers:
+            in_shapes.append(in_shape)
+            in_shape = l.compute_output_shape(in_shape)
+
+        for i in range(len(self.layers))[::-1]:
+            Y = self.layers[i].recover_input(Y, out_shape, in_shapes[i])
+            out_shape = in_shapes[i]
+
+        return Y
+
+    def load_model_from_stream(self, f):
+        n_layers = struct.unpack('i', f.read(4))[0]
+        self.layers = []
+        for i in xrange(n_layers):
+            self.layers.append(FixedConvolutionalLayer.load_model_from_stream(f))
+
+    def save_model_to_binary(self):
+        s = struct.pack('i', len(self.layers)) + ''.join([l.save_model_to_binary() for l in self.layers])
+
+    def load_model_from_file(self, fname):
+        with open(fname, 'rb') as f:
+            self.load_model_from_stream(f)
+
+    def save_model_to_file(self, fname):
+        with open(fname, 'wb') as f:
+            f.write(self.save_model_to_binary())
+
+    def __repr__(self):
+        return ' | '.join([str(l) for l in self.layers])
+
+def build_kmeans_convnet(X, in_shape, layer_configs=[], n_patches_per_image=100, prep_type=None, **kwargs):
+    """
+    X: Nx(C*H*W) image matrix, each row is an image
+    in_shape: shape of the input image
+    layer_configs: a list of layer configurations, each element is a (K, 
+        ksize, stride, n_patches_per_image, prep_type) or (K, ksize, stride) tuple.  If 
+        n_patches_per_image and prep_type are not set in the tuples, global
+        values will be used to train all layers.
+    n_patches_per_image: only used when layer_configs is a list of 2-tuples
+    prep_type: only used when layer_configs is a list of 2-tuples
+    kwargs: extra arguments for k-means training.
+    """
+    if len(layer_configs) == 0:
+        return
+
+    kmnn = FixedConvolutionalNetwork()
+    for i in xrange(len(layer_configs)):
+        if len(layer_configs[i]) == 5:
+            K, ksize, stride, n_patches_per_image_, prep_type_ = layer_configs[i]
+        else:
+            K, ksize, stride = layer_configs[i][:3]
+            n_patches_per_image_ = n_patches_per_image
+            prep_type_ = prep_type
+
+        if i == 0:
+            train_data = X
+            train_in_shape = in_shape
+        else:
+            train_data, train_in_shape = kmnn.forward_prop(X, in_shape)
+
+        print ''
+        print '===== Training layer %d =====' % (i+1)
+        print 'data shape: %s' % str(train_in_shape)
+        print ''
+
+        m = train_kmeans_layer(train_data, train_in_shape, K, ksize, n_patches_per_image_, prep_type_, **kwargs)
+        kmnn.layers.append(KMeansLayer(m, stride=stride))
+
+    return kmnn
+
 
