@@ -103,7 +103,7 @@ class FixedConvolutionalLayer(object):
         """
         Y = gnp.as_numpy_array(Y).reshape(-1, out_shape.c, out_shape.h, out_shape.w).transpose((0,2,3,1)).reshape(-1, out_shape.c)
         P = self.recover_patches_from_responses(Y)
-        X = self.overlay_patches(P, out_shape, in_shape)
+        return self.overlay_patches(P, out_shape, in_shape)
 
     def recover_patches_from_responses(self, resp):
         raise NotImplementedError()
@@ -112,10 +112,18 @@ class FixedConvolutionalLayer(object):
         """
         patches are assumed to be organized as a (NxHxW)*C matrix.
         """
-        P = patches.reshape(-1, out_shape.h, out_shape.w, in_shape.c).transpose((0,3,1,2))
+        P = patches.reshape(-1, out_shape.h, out_shape.w, in_shape.c, self.ksize, self.ksize).transpose((0,3,1,2,4,5))
+        # P = patches.reshape(-1, out_shape.h, out_shape.w, in_shape.c).transpose((0,3,1,2))
 
         X = np.zeros((P.shape[0], in_shape.c, in_shape.h, in_shape.w), dtype=np.float32)
-        # TODO
+        overlay_count = X * 0
+
+        for i in xrange(out_shape.h):
+            for j in xrange(out_shape.w):
+                X[:,:,i*self.stride:i*self.stride+self.ksize,j*self.stride:j*self.stride+self.ksize] += P[:,:,i,j,:,:]
+                overlay_count[:,:,i*self.stride:i*self.stride+self.ksize,j*self.stride:j*self.stride+self.ksize] += 1
+
+        return X / (overlay_count + 1e-10)
     
     @staticmethod
     def load_model_from_stream(f):
