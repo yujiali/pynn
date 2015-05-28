@@ -57,9 +57,12 @@ class FixedConvolutionalLayer(object):
         self.prep = prep
 
     def compute_output_shape(self, input_data_shape):
+        """
+        The computed output shape also takes care of the padding to avoid boundary effects
+        """
         return ConvShape(
-                (input_data_shape.h - self.ksize + self.stride) / self.stride,
-                (input_data_shape.w - self.ksize + self.stride) / self.stride,
+                (input_data_shape.h - self.ksize + self.stride - 1) / self.stride + 1,
+                (input_data_shape.w - self.ksize + self.stride - 1) / self.stride + 1,
                 self.n_oc)
 
     def extract_patches(self, X, data_shape):
@@ -69,7 +72,6 @@ class FixedConvolutionalLayer(object):
 
         Return patches matrix of size (H*W*N)x(C*ksize*ksize)
         """
-        # a copy is necessary to make the strides easy to index
         X = gnp.as_numpy_array(X).reshape(-1, data_shape.c, data_shape.h, data_shape.w)
 
         assert data_shape.c == self.n_ic
@@ -152,13 +154,21 @@ class FixedConvolutionalLayer(object):
 
     def _load_model_from_stream(self, f):
         self.n_ic, self.n_oc, self.ksize, self.stride = struct.unpack('iiii', f.read(4*4))
-        self.prep = pp.Preprocessor.load_from_stream(f)
+        if struct.unpack('i', f.read(4))[0] == 1:
+            self.prep = pp.Preprocessor.load_from_stream(f)
+        else:
+            self.prep = None
 
     def save_model_to_binary(self):
         return struct.pack('i', self.get_type_code()) + self._save_model_to_binary()
 
     def _save_model_to_binary(self):
-        return struct.pack('iiii', n_ic, n_oc, ksize, stride) + prep.save_to_binary()
+        s = struct.pack('iiii', self.n_ic, self.n_oc, self.ksize, self.stride)
+        if self.prep:
+            s += struct.pack('i', 1) + self.prep.save_to_binary()
+        else:
+            s += struct.pack('i', 0)
+        return s
 
     @staticmethod
     def get_type_code():
@@ -173,7 +183,7 @@ class FixedConvolutionalLayer(object):
 
 
 class KMeansLayer(FixedConvolutionalLayer):
-    def __init__(self, kmeans_model, stride=2):
+    def __init__(self, kmeans_model=None, stride=2):
         """
         kmeans_model: instance of KMeansModel, contains attributes (C, dist, nc, ksize, prep)
         """
@@ -191,19 +201,25 @@ class KMeansLayer(FixedConvolutionalLayer):
         assert self.C.shape[1] == ksize*ksize*n_ic
 
         self.f_dist = clust.choose_distance_metric(dist)
+        self.dist = dist
 
     def _save_model_to_binary(self):
         return super(KMeansLayer, self)._save_model_to_binary() + \
-                self.C.asarray().astype(np.float32).ravel().tostring()
+                self.C.asarray().astype(np.float32).ravel().tostring() + \
+                struct.pack('i', len(self.dist)) + str(self.dist)
 
     def _load_model_from_stream(self, f):
-        super(KMeansLayer, self)._load_model_from_stream()
+        super(KMeansLayer, self)._load_model_from_stream(f)
 
         K = self.n_oc
         D = self.n_ic * self.ksize * self.ksize
 
         self.C = gnp.garray(np.fromstring(f.read(4*K*D), dtype=np.float32).reshape(
             self.n_oc, self.n_ic*self.ksize*self.ksize))
+
+        dist_name_len = struct.unpack('i', f.read(4))[0]
+        self.dist = f.read(dist_name_len)
+        self.f_dist = clust.choose_distance_metric(self.dist)
 
     @staticmethod
     def get_type_code():
@@ -285,8 +301,8 @@ def get_random_patches(X, in_shape, ksize, n_patches_per_image, batch_size=100):
     patches = []
     for n in xrange(n_patches_per_image):
         for im_idx in xrange(0, X.shape[0], batch_size):
-            h_start = np.random.randint(in_shape.h - ksize)
-            w_start = np.random.randint(in_shape.w - ksize)
+            h_start = np.random.randint(in_shape.h - ksize + 1)
+            w_start = np.random.randint(in_shape.w - ksize + 1)
 
             patches.append(X[im_idx:im_idx+batch_size,:,h_start:h_start+ksize,w_start:w_start+ksize])
 
@@ -309,7 +325,10 @@ class FixedConvolutionalNetwork(object):
     Multiple fixed convolutional layers stacked on top of each other.
     """
     def __init__(self, layers=[]):
-        self.layers = layers
+        self.layers = layers[:]
+
+    def add_layer(self, layer):
+        self.layers.append(layer)
 
     def forward_prop(self, X, data_shape):
         for l in self.layers:
@@ -340,6 +359,7 @@ class FixedConvolutionalNetwork(object):
 
     def save_model_to_binary(self):
         s = struct.pack('i', len(self.layers)) + ''.join([l.save_model_to_binary() for l in self.layers])
+        return s
 
     def load_model_from_file(self, fname):
         with open(fname, 'rb') as f:
@@ -380,16 +400,18 @@ def build_kmeans_convnet(X, in_shape, layer_configs=[], n_patches_per_image=100,
             train_data = X
             train_in_shape = in_shape
         else:
-            train_data, train_in_shape = kmnn.forward_prop(X, in_shape)
+            train_data, train_in_shape = kmnn.layers[-1].forward_prop(train_data, train_in_shape)
 
         print ''
         print '===== Training layer %d =====' % (i+1)
         print 'data shape: %s' % str(train_in_shape)
+        print 'current network: %s' % str(kmnn)
         print ''
 
         m = train_kmeans_layer(train_data, train_in_shape, K, ksize, n_patches_per_image_, prep_type_, **kwargs)
-        kmnn.layers.append(KMeansLayer(m, stride=stride))
+        kmnn.add_layer(KMeansLayer(m, stride=stride))
 
+    print 'Final network: ' + str(kmnn)
     return kmnn
 
 

@@ -79,7 +79,7 @@ def kmeans(X, K, init='plus', dist='euclidean', empty_action='singleton', max_it
     init: method to choose initial cluster centers.  Available options: {
         'plus': k-means++, 
         'sample': randomly sample K data points,
-        'random': generate K points uniformly at random from X's range}
+        'random': generate K points uniformly at random from X's range }
     dist: distance metric to be used. Available options: {
         'euclidean': Euclidean distance. }
     empty_action: action to take when one cluster lost all its members.  
@@ -97,7 +97,7 @@ def kmeans(X, K, init='plus', dist='euclidean', empty_action='singleton', max_it
     """
     t_start = time.time()
     gnp.free_reuse_cache()
-    gnp.max_memory_usage = 3 * 1000 * 1000 * 1000
+    gnp.max_memory_usage = 3.8 * 1000 * 1000 * 1000
 
     def f_print(s, newline=True):
         if verbose:
@@ -127,7 +127,7 @@ def kmeans(X, K, init='plus', dist='euclidean', empty_action='singleton', max_it
     prev_idx = None
 
     full_idx = np.arange(X.shape[0])
-    f_print('done [%.2fs]' % (time.time()) - t_start)
+    f_print('done [%.2fs]' % (time.time() - t_start))
 
     t_start = time.time()
     i_iter = 0
