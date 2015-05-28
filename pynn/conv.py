@@ -74,11 +74,20 @@ class FixedConvolutionalLayer(object):
         """
         X = gnp.as_numpy_array(X).reshape(-1, data_shape.c, data_shape.h, data_shape.w)
 
+        out_shape = self.compute_output_shape(data_shape)
+        padded_h = (out_shape.h - 1) * self.stride + self.ksize
+        padded_w = (out_shape.w - 1) * self.stride + self.ksize
+
+        if padded_h > data_shape.h or padded_w > data_shape.w:
+            new_X = np.zeros((X.shape[0], X.shape[1], padded_h, padded_w), dtype=X.dtype)
+            new_X[:,:,:data_shape.h, :data_shape.w] = X
+            X = new_X
+        
         assert data_shape.c == self.n_ic
 
         patches = []
-        for i in xrange(0, data_shape.h - self.ksize + 1, self.stride):
-            for j in xrange(0, data_shape.w - self.ksize + 1, self.stride):
+        for i in xrange(0, X.shape[-2] - self.ksize + 1, self.stride):
+            for j in xrange(0, X.shape[-1] - self.ksize + 1, self.stride):
                 patches.append(X[:,:,i:i+self.ksize, j:j+self.ksize])
 
         return np.concatenate(patches, axis=0).reshape(-1, self.ksize*self.ksize*self.n_ic)
@@ -124,12 +133,22 @@ class FixedConvolutionalLayer(object):
         """
         raise NotImplementedError()
 
+    def compute_input_shape(self, out_shape):
+        return ConvShape(
+                (out_shape.h - 1) * self.stride + self.ksize,
+                (out_shape.w - 1) * self.stride + self.ksize,
+                self.n_ic)
+
     def overlay_patches(self, patches, out_shape, in_shape):
         """
         patches are assumed to be organized as a (NxHxW)*C matrix.
         """
         P = patches.reshape(-1, out_shape.h, out_shape.w, in_shape.c, self.ksize, self.ksize).transpose((0,3,1,2,4,5))
-        X = np.zeros((P.shape[0], in_shape.c, in_shape.h, in_shape.w), dtype=np.float32)
+
+        padded_in_shape = self.compute_input_shape(out_shape)
+        assert padded_in_shape.c == in_shape.c
+
+        X = np.zeros((P.shape[0], padded_in_shape.c, padded_in_shape.h, padded_in_shape.w), dtype=np.float32)
         overlay_count = X * 0
 
         for i in xrange(out_shape.h):
@@ -138,6 +157,7 @@ class FixedConvolutionalLayer(object):
                 overlay_count[:,:,i*self.stride:i*self.stride+self.ksize,j*self.stride:j*self.stride+self.ksize] += 1
 
         X /= (overlay_count + 1e-10)
+        X = X[:,:,:in_shape.h,:in_shape.w]
         return X.reshape(X.shape[0], -1)
     
     @staticmethod
@@ -282,7 +302,7 @@ class KMeansModel(object):
         self.ksize = ksize
         self.prep = prep
 
-def get_random_patches(X, in_shape, ksize, n_patches_per_image, batch_size=100):
+def get_random_patches(X, in_shape, ksize, n_patches_per_image, batch_size=100, pad_h=0, pad_w=0):
     """
     Extract random patches from images X.
 
@@ -297,19 +317,23 @@ def get_random_patches(X, in_shape, ksize, n_patches_per_image, batch_size=100):
         patch.
     """
     X = gnp.as_numpy_array(X).reshape(-1, in_shape.c, in_shape.h, in_shape.w)
+    if pad_h > 0 or pad_w > 0:
+        new_X = np.zeros((X.shape[0], in_shape.c, in_shape.h + pad_h, in_shape.w + pad_w), dtype=X.dtype)
+        new_X[:,:,:in_shape.h,:in_shape.w] = X
+        X = new_X
 
     patches = []
     for n in xrange(n_patches_per_image):
         for im_idx in xrange(0, X.shape[0], batch_size):
-            h_start = np.random.randint(in_shape.h - ksize + 1)
-            w_start = np.random.randint(in_shape.w - ksize + 1)
+            h_start = np.random.randint(X.shape[-2] - ksize + 1)
+            w_start = np.random.randint(X.shape[-1] - ksize + 1)
 
             patches.append(X[im_idx:im_idx+batch_size,:,h_start:h_start+ksize,w_start:w_start+ksize])
 
     return np.concatenate(patches, axis=0).reshape(-1, in_shape.c*ksize*ksize)
 
-def train_kmeans_layer(X, in_shape, K, ksize, n_patches_per_image, prep_type=None, **kwargs):
-    train_data = get_random_patches(X, in_shape, ksize, n_patches_per_image)
+def train_kmeans_layer(X, in_shape, K, ksize, n_patches_per_image, prep_type=None, pad_h=0, pad_w=0, **kwargs):
+    train_data = get_random_patches(X, in_shape, ksize, n_patches_per_image, pad_h=pad_h, pad_w=pad_w)
     if prep_type is not None:
         prep = pp.choose_preprocessor_by_name(prep_type)
         prep.train(train_data)
@@ -408,7 +432,11 @@ def build_kmeans_convnet(X, in_shape, layer_configs=[], n_patches_per_image=100,
         print 'current network: %s' % str(kmnn)
         print ''
 
-        m = train_kmeans_layer(train_data, train_in_shape, K, ksize, n_patches_per_image_, prep_type_, **kwargs)
+        pad_h = (stride - (train_in_shape.h - ksize) % stride) % stride
+        pad_w = (stride - (train_in_shape.w - ksize) % stride) % stride
+
+        m = train_kmeans_layer(train_data, train_in_shape, K, ksize, 
+                n_patches_per_image_, prep_type_, pad_h=pad_h, pad_w=pad_w, **kwargs)
         kmnn.add_layer(KMeansLayer(m, stride=stride))
 
     print 'Final network: ' + str(kmnn)
