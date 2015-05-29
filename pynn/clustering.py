@@ -49,7 +49,7 @@ def _dist_euclidean(X, Y):
     X_diag = (X*X).sum(axis=1)
     Y_diag = (Y*Y).sum(axis=1)
 
-    return -2 * X.dot(Y.T) + X_diag.reshape(-1,1) + Y_diag.reshape(1,-1)
+    return gnp.sqrt(-2 * X.dot(Y.T) + X_diag.reshape(-1,1) + Y_diag.reshape(1,-1) + 1e-3)
 
 def _dist_cosine(X, Y):
     """
