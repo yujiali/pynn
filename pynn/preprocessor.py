@@ -293,7 +293,7 @@ def pca_dim_reduction(x, basis, xmean=None):
     xnew: N*K new data matrix
     """
 
-    if xmean == None:
+    if xmean is None:
         xmean = x.mean(axis=0)
 
     xnew = (x - xmean).dot(basis)

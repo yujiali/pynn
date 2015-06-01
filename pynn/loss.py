@@ -199,7 +199,7 @@ class SquaredLoss(Loss):
         self.target = convert_to_garray(target)
 
     def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
-        diff = pred - self.target
+        diff = gnp.as_garray(pred) - self.target
         return (diff**2).sum() / 2, diff
 
     def get_name(self):
@@ -221,6 +221,7 @@ class CrossEntropy(Loss):
         self.target = convert_to_garray(target)
 
     def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
+        pred = gnp.as_garray(pred)
         y = gnp.exp(pred - pred.max(axis=1)[:,gnp.newaxis])
         y = y / y.sum(axis=1)[:,gnp.newaxis]
 
@@ -252,7 +253,7 @@ class BinaryCrossEntropy(Loss):
         self.target = convert_to_garray(target)
 
     def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
-        y = gnp.logistic(pred)
+        y = gnp.logistic(gnp.as_garray(pred))
         return -((1 - self.target) * safe_log(1 - y) + self.target * safe_log(y)).sum(), y - self.target
 
     def get_name(self):
@@ -274,6 +275,7 @@ class OneVersusAllHingeLoss(Loss):
         self.target = target if isinstance(target, gnp.garray) else gnp.garray(target)
 
     def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
+        pred = gnp.as_garray(pred)
         M = 1 - pred * self.target
         loss = ((M > 0) * M).sum()
         grad = -((M > 0) * self.target) if compute_grad else gnp.zeros(pred.shape)
@@ -298,6 +300,7 @@ class L2HingeLoss(Loss):
         self.target = target if isinstance(target, gnp.garray) else gnp.garray(target)
 
     def compute_not_weighted_loss_and_grad(self, pred, compute_grad=False):
+        pred = gnp.as_garray(pred)
         M = 1 - pred * self.target
         loss = (((M > 0) * M)**2).sum()
         grad = -2*((M > 0)*self.target*M) if compute_grad else gnp.zeros(pred.shape)

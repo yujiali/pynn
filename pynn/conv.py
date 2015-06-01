@@ -11,6 +11,8 @@ import numpy as np
 import gnumpy as gnp
 import preprocessor as pp
 import clustering as clust
+import loss as ls
+import pynn.nn as nn
 
 class ConvShape(object):
     """
@@ -291,11 +293,19 @@ class TriangleKMeansLayer(KMeansLayer):
 
     def recover_patches_from_responses(self, resp):
         R = gnp.as_garray(resp)
-        R /= R.sum(axis=1).reshape(-1,1)
+        R /= (R.sum(axis=1).reshape(-1,1) + 1e-10)
         P = R.dot(self.C)
         if self.prep is not None:
             P = self.prep.reverse(P)
         return P.asarray()
+
+def binarize_reconstruction(x, shape):
+    transposed_x = x.reshape(x.shape[0], shape.c, shape.h, shape.w).transpose((0,2,3,1))
+    transposed_x = transposed_x.reshape(-1, shape.c)
+    new_x = np.zeros(transposed_x.shape, transposed_x.dtype)
+    new_x[np.arange(new_x.shape[0]), transposed_x.argmax(axis=1)] = 1
+
+    return new_x.reshape((x.shape[0], shape.h, shape.w, shape.c)).transpose((0,3,1,2))
 
 class KMeansModel(object):
     def __init__(self, C, dist, nc, ksize, prep):
@@ -340,7 +350,7 @@ def train_kmeans_layer(X, in_shape, K, ksize, n_patches_per_image, prep_type=Non
     if prep_type is not None:
         prep = pp.choose_preprocessor_by_name(prep_type)
         prep.train(train_data)
-        train_data = prep.process(prep)
+        train_data = prep.process(train_data)
     else:
         prep = None
 
@@ -368,12 +378,18 @@ class FixedConvolutionalNetwork(object):
     def add_layer(self, layer):
         self.layers.append(layer)
 
+    def compute_output_shape(self, in_shape):
+        out_shape = in_shape
+        for l in self.layers:
+            out_shape = l.compute_output_shape(out_shape)
+        return out_shape
+
     def forward_prop(self, X, data_shape):
         for l in self.layers:
             X, data_shape = l.forward_prop(X, data_shape)
         return X, data_shape
     
-    def recover_input(self, Y, out_shape, in_shape, **kwargs):
+    def recover_input(self, Y, in_shape, **kwargs):
         """
         If in_shapes is None, this will try to use the in_shapes from a
         previous forward prop.
@@ -383,6 +399,7 @@ class FixedConvolutionalNetwork(object):
             in_shapes.append(in_shape)
             in_shape = l.compute_output_shape(in_shape)
 
+        out_shape = in_shape
         for i in range(len(self.layers))[::-1]:
             Y = self.layers[i].recover_input(Y, out_shape, in_shapes[i], **kwargs)
             out_shape = in_shapes[i]
@@ -409,6 +426,42 @@ class FixedConvolutionalNetwork(object):
 
     def __repr__(self):
         return ' | '.join([str(l) for l in self.layers])
+
+class AutoEncoderOnFixedConvNet(object):
+    def __init__(self, convnet=None, ae=None):
+        self.convnet = convnet
+        self.ae = ae
+
+    def encode(self, x, in_shape):
+        r, out_shape = self.convnet.forward_prop(x, in_shape)
+        return self.ae.encoder.forward_prop(r)
+
+    def decode(self, z, in_shape, **kwargs):
+        r = gnp.as_numpy_array(self.ae.decoder.forward_prop(z))
+        out_shape = self.convnet.compute_output_shape(in_shape)
+        assert out_shape.size() == r.shape[1]
+        return self.convnet.recover_input(r, in_shape, **kwargs)
+
+    def load_model_from_stream(self, f):
+        self.convnet = FixedConvolutionalNetwork()
+        self.convnet.load_model_from_stream(f)
+        
+        self.ae = nn.AutoEncoder()
+        self.ae.load_model_from_stream(f)
+
+    def save_model_to_binary(self):
+        return self.convnet.save_model_to_binary() + self.ae.save_model_to_binary()
+
+    def load_model_from_file(self, fname):
+        with open(fname, 'rb') as f:
+            self.load_model_from_stream(f)
+
+    def save_model_to_file(self, fname):
+        with open(fname, 'wb') as f:
+            f.write(self.save_model_to_binary())
+
+    def __repr__(self):
+        return str(self.convnet) + ' | ' + str(self.ae)
 
 def build_kmeans_convnet(X, in_shape, layer_configs=[], n_patches_per_image=100, kmeans_repeat=1, prep_type=None,
         use_triangle_kmeans=False, **kwargs):
@@ -459,4 +512,26 @@ def build_kmeans_convnet(X, in_shape, layer_configs=[], n_patches_per_image=100,
     print 'Final network: ' + str(kmnn)
     return kmnn
 
+def eval_kmeans_reconstruction_loss(x, in_shape, kmnn, loss_name, **kwargs):
+    loss = ls.get_loss_from_type_name(loss_name)
 
+    loss.load_target(x)
+
+    r, out_shape = kmnn.forward_prop(x, in_shape)
+    x_rec = kmnn.recover_input(r, in_shape, **kwargs)
+
+    l, _ = loss.compute_loss_and_grad(x_rec)
+    l /= x.shape[0]
+    return l
+
+def eval_ae_on_kmeans_reconstruction_loss(x, in_shape, ae_kmnn, loss_name, **kwargs):
+    loss = ls.get_loss_from_type_name(loss_name)
+
+    loss.load_target(x)
+
+    z = ae_kmnn.encode(x, in_shape)
+    x_rec = ae_kmnn.decode(z, in_shape)
+
+    l, _ = loss.compute_loss_and_grad(x_rec)
+    l /= x.shape[0]
+    return l
