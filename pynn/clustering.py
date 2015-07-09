@@ -46,6 +46,8 @@ def _dist_euclidean(X, Y):
     """
     d_ij = (x_i - y_j)^2
     """
+    X = gnp.as_garray(X)
+    Y = gnp.as_garray(Y)
     X_diag = (X*X).sum(axis=1)
     Y_diag = (Y*Y).sum(axis=1)
 

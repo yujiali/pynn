@@ -72,6 +72,8 @@ class LayerParams(object):
             layer_params = BatchNormalizationLayerParams()
         elif type_code == 2:
             layer_params = MultiInputLayerParams()
+        else:
+            raise Exception('layer params type code %d not recognized.' % type_code)
         layer_params._load_from_stream(f)
         return layer_params
 
